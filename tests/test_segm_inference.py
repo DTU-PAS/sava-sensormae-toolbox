@@ -18,10 +18,10 @@ CONFIG_FILE = "configs/sensormae_onnx.yaml"
 def test_inference_engine():
     # Load the sample image
     sample_rgb_path = (
-        f"data/samples/Visible/00001.png"
+        f"data/samples/Visible/00040.png"
     )
     sample_thermal_path = (
-        f"data/samples/Infrared/00001.png"
+        f"data/samples/Infrared/00040.png"
     )
 
     rgb = cv2.imread(str(sample_rgb_path), cv2.IMREAD_UNCHANGED)

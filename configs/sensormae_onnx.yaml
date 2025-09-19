@@ -1,7 +1,7 @@
  # Author: PAS Group DTU
 
 # Runtime configuration
-model_path: data/20250912_160153_rgb-thermal_vit-small_ConvNextHead.onnx
+model_path: data/20250917_144337_rgb-thermal_vit-medium_ConvNextHead.onnx
 runtime: onnxruntime
 providers:
   - CUDAExecutionProvider

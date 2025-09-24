@@ -16,7 +16,7 @@ with open("requirements.txt", "r") as req_file:
 
 setuptools.setup(
     name="sava_sensormae_toolbox",
-    version="0.1.0",
+    version="0.2.0",
     author="PAS DTU Electro",
     author_email="fabmo@dtu.dk",
     description="2D/3D Object Detection Inference Library",

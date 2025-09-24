@@ -352,3 +352,4 @@ data/coco2017
 *.jpg
 *.jpeg
 test_output.png
+archive

@@ -1,25 +1,53 @@
 
 from .base import Model
-from typing import List
+from typing import List, Optional, Tuple
 import numpy as np
 from ..utils.runtime import ONNXRuntime
 import cv2
 import matplotlib.pyplot as plt
 import logging
-import os
 from sava_sensormae_toolbox.structures import DetectionListResult, DectObject
 logger = logging.getLogger(__name__)
 
-class SensorMAESegm(Model):
+class SensorMAEObjDet(Model):
 
-    def __init__(self, runtime: ONNXRuntime):
+    def __init__(self, runtime: ONNXRuntime, num_classes: int = 20, confidence_threshold: float = 0.0):
         self.session = runtime
-        self.h_w = None
+        self.num_classes = num_classes
+        self.confidence_threshold = confidence_threshold
 
     def __call__(self, rgb_image: np.ndarray, thermal_image: np.ndarray) -> List[np.ndarray]:
-        return self.segment_image(rgb_image, thermal_image)
+        return self.det_image(rgb_image, thermal_image)
+    
+    @staticmethod
+    def softmax(x, axis=None):
+        x = x - x.max(axis=axis, keepdims=True)
+        y = np.exp(x)
+        return y / y.sum(axis=axis, keepdims=True)
+    
+    @staticmethod
+    def box_cxcywh_to_xyxy(x: np.ndarray) -> np.ndarray:
+        """
+        Convert [cx, cy, w, h] box format to [x_min, y_min, x_max, y_max].
+        Args:
+            x: numpy array of shape (..., 4)
+        Returns:
+            numpy array of shape (..., 4)
+        """
+        x_c, y_c, w, h = np.moveaxis(x, -1, 0)  # like torch.unbind(-1)
 
-    def segment_image(self, rgb_image: np.ndarray, thermal_image: np.ndarray) -> List[np.ndarray]:
+        w = np.clip(w, a_min=0.0, a_max=None)
+        h = np.clip(h, a_min=0.0, a_max=None)
+
+        b = [
+            x_c - 0.5 * w,
+            y_c - 0.5 * h,
+            x_c + 0.5 * w,
+            y_c + 0.5 * h,
+        ]
+        return np.stack(b, axis=-1)
+
+    def det_image(self, rgb_image: np.ndarray, thermal_image: np.ndarray) -> List[np.ndarray]:
         rgb_tensor, thermal_tensor = self._preprocessing(rgb_image, thermal_image)
         outputs = self._inference(rgb_tensor, thermal_tensor)
         results = self._postprocessing(outputs)
@@ -28,7 +56,7 @@ class SensorMAESegm(Model):
     @staticmethod
     def _resize_and_pad(image, size=640, pad_value=0, pad_mask_value=0):
         h, w = image.shape[:2]
-        
+
         # --- Step 1: Resize (LongestMaxSize) ---
         scale = size / max(h, w)
         new_w, new_h = int(w * scale), int(h * scale)
@@ -51,7 +79,7 @@ class SensorMAESegm(Model):
         return padded
     
     @staticmethod
-    def apply_colormap(mask: np.ndarray, num_classes: int = 21) -> np.ndarray:
+    def _apply_colormap(mask: np.ndarray, num_classes: int = 21) -> np.ndarray:
         """Convert class indices in mask to RGB color using matplotlib colormap."""
         colormap = plt.cm.get_cmap("tab20", num_classes)
         colored_mask = colormap(mask.astype(int))[:, :, :3]  # Drop alpha channel
@@ -86,23 +114,21 @@ class SensorMAESegm(Model):
         """
         mean = 0.5
         std  = 0.28
-        
+
         image = (image - image.min())/(image.max() - image.min())  # normalize to [0,1]
         image = image.astype(np.float32)  # assume already scaled to [0,1]
         image = (image - mean) / std
         return image
     
-    def _preprocess_rgb(self, rgb: np.ndarray):
-        """Read RGB image, resize, normalize, and convert to NCHW float32."""
-        h, w = rgb.shape[:2]
-        self.h_w = (h, w) 
+    def _preprocess_rgb(self, rgb: np.ndarray, input_size=(640, 640)):
+        """Read RGB image, resize, normalize, and convert to NCHW float32."""    
         rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
         rgb = self._normalize_rgb(rgb)
         rgb = self._resize_and_pad(rgb)
         return rgb
 
 
-    def _preprocess_thermal(self, thermal: np.ndarray):
+    def _preprocess_thermal(self, thermal: np.ndarray, input_size=(640, 640)):
         """Read single-channel thermal image or return zeros if not given."""
         THERMAL_MEAN = 0.5
         THERMAL_STD = 0.28
@@ -145,13 +171,39 @@ class SensorMAESegm(Model):
 
         return rgb, thermal
 
+    def scale_draw_boxes(self, boxes:np.ndarray, image:np.ndarray) -> np.ndarray:
+        h, w = image.shape[:2]
+        scale_up = max(h, w) # This is because the image passed is 640 * 640 padded. If in the future we pass arbitrary image sizes, we need to change this.
+        boxes = np.array(boxes)
+        boxes[:, 0] *= scale_up  # x_min
+        boxes[:, 1] *= scale_up  # y_min
+        boxes[:, 2] *= scale_up  # x_max
+        boxes[:, 3] *= scale_up  # y_max
+        boxes = boxes.astype(np.int32)
+        for box in boxes:
+            cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+        return image
+    
     def _postprocessing(self, outputs: List[np.ndarray]) -> List[np.ndarray]:
+        out_logits, out_bbox = outputs[0], outputs[1]
+        prob = self.softmax(out_logits, -1)
+        scores = np.max(prob, axis=-1)
+        labels = np.argmax(prob, axis=-1)
+
+        # convert to [x0, y0, x1, y1] format
+        boxes = self.box_cxcywh_to_xyxy(out_bbox)
+        
+        # filter detections by confidence threshold
         results = DetectionListResult()
-        for out in outputs[0]:
-            scale_w =  self.h_w[1]/max(self.h_w)
-            scale_h =  self.h_w[0]/max(self.h_w)
-
-            to_save = out[: int(scale_h * 640), : int(scale_w * 640)]  # remove padding, also 640 is fixed for now but it should be changed
-            results.append(DectObject(full_image_segm=to_save))
-
+        for score, label, box in zip(scores, labels, boxes, strict=True):
+            no_class_filter = label != self.num_classes
+            conf_filter = score > self.confidence_threshold
+            keep = no_class_filter & conf_filter
+            results.append(DectObject(
+                xywh=box[keep].tolist(),
+                class_id=label[keep].tolist(),
+                score=score[keep].tolist()
+            ))
+        
         return results
+

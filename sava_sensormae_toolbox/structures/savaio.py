@@ -16,12 +16,13 @@ class DectObject:
 
     def __init__(
         self,
-        xywh: List[float],  # 2D bounding box
+        xywh: List[float] = [],  # 2D bounding box
         xyzwhd: List[float] = [],  # 3D bounding box
         segm: List[float] = [],  # Segmentation mask
         score: float = 0.0,  # Confidence score
         class_id: str = "",  # Class ID
         pc: List[float] = [],  # Point cloud data
+        full_image_segm: np.ndarray = np.array([]),  # Full image segmentation mask
     ) -> None:
         self._xywh: List[float] = xywh
         self._xyzwhd: List[float] = xyzwhd
@@ -30,6 +31,7 @@ class DectObject:
         self._class_id: str = class_id
         self._score: float = score
         self._pc: List[float] = pc
+        self._full_image_segm = full_image_segm
 
     @property
     def xywh(self) -> List[float]:
@@ -113,6 +115,15 @@ class DetectionListResult:
     def __init__(self) -> None:
         self._dectobjs: List[DectObject] = []
 
+    def __getitem__(self, idx: int) -> "DectObject":
+        return self._dectobjs[idx]
+
+    def __len__(self) -> int:
+        return len(self._dectobjs)
+
+    def __iter__(self):
+        return iter(self._dectobjs)
+    
     @property
     def dectobjs(self) -> List[DectObject]:
         """Returns the list of detected objects."""

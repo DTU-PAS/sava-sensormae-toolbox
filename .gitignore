@@ -349,7 +349,5 @@ pred_*.jpg
 *_pred.jpg
 .vscode
 data/coco2017
-*.jpg
-*.jpeg
 test_output.png
 archive

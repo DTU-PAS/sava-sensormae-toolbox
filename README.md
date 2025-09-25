@@ -39,7 +39,7 @@ tests/
 Minimal example (segmentation):
 ```yaml
 runtime: onnxruntime
-model_path: data/20250912_160153_rgb-thermal_vit-small_ConvNextHead.onnx
+model_path: data/20250925_123721_rgb-thermal_vit-medium_ConvNextHead_FMB.onnx
 providers:
   - CPUExecutionProvider  # or CUDAExecutionProvider if available
 batch_size: 1
@@ -68,18 +68,17 @@ It auto‑derives the infrared path by replacing `Visible` with `Infrared`.
 
 Examples:
 ```bash
-# Segmentation panel + mask
+# Segmentation
+python tests/test_inference_rgb_therm.py \
+  configs/sensormae_onnx_segm.yaml\
+  data/samples/FMB/Visible/00040.png \
+  --out data/samples/test_output_segm.png
+
+# Object Detection
 python tests/test_inference_rgb_therm.py \
   configs/sensormae_onnx_det.yaml\
   data/samples/LLVIP/Visible/180154.jpg \
   --out data/samples/test_output_objdet.png
-
-# Mask only (no side-by-side panel)
-python tests/test_inference_rgb_therm.py \
-  configs/sensormae_onnx_segm.yaml \
-  data/samples/FMB/Visible/00040.png \
-  --mask-out data/samples/mask.png \
-  --no-panel
 ```
 
 Arguments:

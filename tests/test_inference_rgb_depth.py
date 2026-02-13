@@ -12,9 +12,9 @@ REPO_ROOT = os.path.abspath(os.path.join(THIS_DIR, ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from sava_sensormae_toolbox.inference import InferenceEngine, SensorMAESegm_RGBThermal, SensorMAEObjDet_RGBThermal
+from sava_sensormae_toolbox.inference import InferenceEngine, SensorMAEObjDet_RGBDepth
 
-def find_infrared_path(visible_path: str) -> str:
+def find_depth_path(visible_path: str) -> str:
     """Return the infrared path by replacing 'Visible' with 'Infrared'.
 
     Raises FileNotFoundError if the resulting path does not exist.
@@ -25,7 +25,7 @@ def find_infrared_path(visible_path: str) -> str:
         raise FileNotFoundError(
             f"Expected 'Visible' in the path to locate the matching infrared image: {visible_path}"
         )
-    infrared_path = visible_path.replace(vis_token, f"{os.sep}Infrared{os.sep}")
+    infrared_path = visible_path.replace(vis_token, f"{os.sep}Depth{os.sep}")
     if not os.path.isfile(infrared_path):
         raise FileNotFoundError(
             f"Infrared image not found at: {infrared_path} (derived from {visible_path})"
@@ -41,11 +41,11 @@ def run_inference(config_path: str, visible_path: str, output_path: str) -> None
         raise FileNotFoundError(f"Visible image not found: {visible_path}")
 
     # Resolve infrared path
-    infrared_path = find_infrared_path(visible_path)
+    depth_path = find_depth_path(visible_path)
 
     # Load images
     rgb = cv2.imread(visible_path, cv2.IMREAD_UNCHANGED)
-    thermal = cv2.imread(infrared_path, cv2.IMREAD_GRAYSCALE)
+    depth = cv2.imread(depth_path, cv2.IMREAD_GRAYSCALE)
 
     model_class = None
 
@@ -54,11 +54,11 @@ def run_inference(config_path: str, visible_path: str, output_path: str) -> None
         config = yaml.safe_load(yaml_file)
 
     if "segm" in config_path.lower():
-        model_class = partial(SensorMAESegm_RGBThermal)
+        model_class = partial(SensorMAESegm)
     elif "det" in config_path.lower():
         with open(config_path, "r") as yaml_file:
             config = yaml.safe_load(yaml_file)
-        model_class = partial(SensorMAEObjDet_RGBThermal, num_classes=config.get("no_class", 20), confidence_threshold=config.get("confidence_threshold", 0.0))
+        model_class = partial(SensorMAEObjDet_RGBDepth, num_classes=config.get("no_class", 20), confidence_threshold=config.get("confidence_threshold", 0.0))
     else:
         raise ValueError("Config file name must indicate 'segm' or 'det' to select the model class.")
     
@@ -66,14 +66,14 @@ def run_inference(config_path: str, visible_path: str, output_path: str) -> None
     inference_engine = InferenceEngine(config_path, model_class)
 
     # Perform inference
-    results = inference_engine.predict(rgb, thermal)
+    results = inference_engine.predict(rgb, depth)
 
     # Save side-by-side panel
     if "segm" in config_path.lower():
-        inference_engine.model.save_results(output_path, rgb, thermal, inference_engine.model.apply_colormap(results[0].full_image_segm))
+        inference_engine.model.save_results(output_path, rgb, depth, inference_engine.model.apply_colormap(results[0].full_image_segm))
         print("Segmentation mask shape:", results[0].full_image_segm.shape)
     elif "det" in config_path.lower():
-        inference_engine.model.save_results(output_path, rgb, thermal, inference_engine.model.scale_draw_boxes(results[0].xywh, rgb.copy()))
+        inference_engine.model.save_results(output_path, rgb, depth, inference_engine.model.scale_draw_boxes(results[0].xywh, rgb.copy()))
 
 
 

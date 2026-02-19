@@ -1,7 +1,7 @@
  # Author: PAS Group DTU
 
 # Runtime configuration
-model_path: data/20250923_130344_rgb-thermal_vit-medium_RFDETRHead_LLVIP.onnx
+model_path: data/model_final.onnx
 runtime: onnxruntime
 providers:
   - CUDAExecutionProvider
@@ -9,8 +9,7 @@ providers:
 batch_size: 1 # For now, 1 is the only accepted value
 
 # Model configuration
-input_size: [384, 384] # [height, width]
-
+input_size: [576, 576] # [height, width]
 confidence_threshold: 0.7
-no_class: 6
+no_class: 5
  

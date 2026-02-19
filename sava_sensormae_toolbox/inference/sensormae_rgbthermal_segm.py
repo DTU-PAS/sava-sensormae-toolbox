@@ -1,157 +1,82 @@
+"""RGB + Thermal semantic-segmentation model (two-input ONNX)."""
 
-from .base import Model
 from typing import List
-import numpy as np
-from ..utils.runtime import ONNXRuntime
+
 import cv2
-import matplotlib.pyplot as plt
+import numpy as np
 import logging
-import os
-from sava_sensormae_toolbox.structures import DetectionListResult, DectObject
+
+from .segm_base import SensorMAESegmentation
+from ..structures import DetectionListResult, DectObject
+
 logger = logging.getLogger(__name__)
 
-class SensorMAESegm_RGBThermal(Model):
 
-    def __init__(self, runtime: ONNXRuntime):
-        self.session = runtime
-        self.h_w = None
+class SensorMAESegm_RGBThermal(SensorMAESegmentation):
+    """SensorMAE segmentation with RGB + thermal inputs.
 
-    def __call__(self, rgb_image: np.ndarray, thermal_image: np.ndarray) -> List[np.ndarray]:
-        return self.segment_image(rgb_image, thermal_image)
+    The ONNX model expects **two separate inputs**: an RGB tensor
+    ``[1, 3, H, W]`` and a single-channel thermal tensor ``[1, 1, H, W]``.
+    The output is a per-pixel class-index map.
+    """
 
-    def segment_image(self, rgb_image: np.ndarray, thermal_image: np.ndarray) -> List[np.ndarray]:
-        rgb_tensor, thermal_tensor = self._preprocessing(rgb_image, thermal_image)
-        outputs = self._inference(rgb_tensor, thermal_tensor)
-        results = self._postprocessing(outputs)
-        return results
-    
+    MODALITY_X_NAME = "thermal"
+
+    def __init__(self, runtime, **kwargs):
+        super().__init__(runtime, **kwargs)
+
+    # ------------------------------------------------------------------
+    # Modality-specific preprocessing
+    # ------------------------------------------------------------------
     @staticmethod
-    def _resize_and_pad(image, size=640, pad_value=0, pad_mask_value=0):
-        h, w = image.shape[:2]
-        
-        # --- Step 1: Resize (LongestMaxSize) ---
-        scale = size / max(h, w)
-        new_w, new_h = int(w * scale), int(h * scale)
-        resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-
-        # --- Step 2: Pad (PadIfNeeded, position="top_left") ---
-        pad_bottom = size - new_h
-        pad_right = size - new_w
-
-        padded = cv2.copyMakeBorder(
-            resized,
-            top=0,
-            bottom=pad_bottom,
-            left=0,
-            right=pad_right,
-            borderType=cv2.BORDER_CONSTANT,
-            value=pad_value,  # background value
-        )
-
-        return padded
-    
-    @staticmethod
-    def apply_colormap(mask: np.ndarray, num_classes: int = 21) -> np.ndarray:
-        """Convert class indices in mask to RGB color using matplotlib colormap."""
-        colormap = plt.cm.get_cmap("tab20", num_classes)
-        colored_mask = colormap(mask.astype(int))[:, :, :3]  # Drop alpha channel
-        return (colored_mask * 255).astype(np.uint8)
-    
-    @staticmethod
-    def _normalize_rgb(image):
-        """
-        Normalize RGB image to ImageNet stats.
-        Args:
-            image: np.ndarray, shape (H, W, 3), dtype uint8 or float32
-        Returns:
-            np.ndarray, float32 normalized
-        """
-        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-        std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-
-        image = image.astype(np.float32) / 255.0  # max_pixel_value=255
-        image = (image - mean) / std
-        return image
-
-
-    @staticmethod
-    def _normalize_thermal(image):
-        """
-        Normalize thermal image.
-        Args:
-            image: np.ndarray, shape (H, W) or (H, W, 1), dtype float32
-                expected already in range [0, 1] since max_pixel_value=1
-        Returns:
-            np.ndarray, float32 normalized
-        """
-        mean = 0.5
-        std  = 0.28
-        
-        image = (image - image.min())/(image.max() - image.min())  # normalize to [0,1]
-        image = image.astype(np.float32)  # assume already scaled to [0,1]
-        image = (image - mean) / std
-        return image
-    
-    def _preprocess_rgb(self, rgb: np.ndarray):
-        """Read RGB image, resize, normalize, and convert to NCHW float32."""
-        h, w = rgb.shape[:2]
-        self.h_w = (h, w) 
-        rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
-        rgb = self._normalize_rgb(rgb)
-        rgb = self._resize_and_pad(rgb)
-        return rgb
-
-
-    def _preprocess_thermal(self, thermal: np.ndarray):
-        """Read single-channel thermal image or return zeros if not given."""
-        THERMAL_MEAN = 0.5
-        THERMAL_STD = 0.28
+    def _preprocess_thermal(image: np.ndarray) -> np.ndarray:
+        """CLAHE → [0,1] normalise → (x-0.5)/0.28."""
+        THERMAL_MEAN, THERMAL_STD = 0.5, 0.28
         clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(10, 10))
+        image = clahe.apply(image.astype(np.uint16))
+        image = cv2.normalize(image.astype(np.float32), None, 0, 1, cv2.NORM_MINMAX)
+        return (image - THERMAL_MEAN) / THERMAL_STD
 
-        thermal = clahe.apply(thermal.astype(np.uint16))
-        thermal = cv2.normalize(thermal.astype(np.float32), None, 0, 1, cv2.NORM_MINMAX)
-        thermal = (thermal - THERMAL_MEAN) / THERMAL_STD    
-        thermal = self._resize_and_pad(thermal, pad_value=THERMAL_MEAN, pad_mask_value=0)
-        return thermal
+    # ------------------------------------------------------------------
+    # Pipeline
+    # ------------------------------------------------------------------
+    def _preprocessing(self, rgb_image: np.ndarray, modality_x_image: np.ndarray):
+        h, w = rgb_image.shape[:2]
+        self._orig_hw = (h, w)
 
-    def _inference(self, rgb_tensor: np.ndarray, thermal_tensor: np.ndarray) -> List[np.ndarray]:
+        # RGB
+        rgb = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
+        rgb = self.normalize_imagenet(rgb)
+        rgb = self.resize_and_pad(rgb)
+        rgb = np.expand_dims(rgb.transpose(2, 0, 1), axis=0).astype(np.float32)
+
+        # Thermal
+        thermal = self._preprocess_thermal(modality_x_image)
+        thermal = self.resize_and_pad(thermal, pad_value=0.5)
+        thermal = np.expand_dims(np.expand_dims(thermal, 0), 0).astype(np.float32)
+
+        logger.debug("RGB     shape=%s  min/max=(%.3f, %.3f)", rgb.shape, rgb.min(), rgb.max())
+        logger.debug("Thermal shape=%s  min/max=(%.3f, %.3f)", thermal.shape, thermal.min(), thermal.max())
+        return rgb, thermal
+
+    def _inference(self, preprocessed):
+        rgb_tensor, thermal_tensor = preprocessed
         input_names = [inp.name for inp in self.session.get_inputs()]
-        output_names = [out.name for out in self.session.get_outputs()]
-        # Prepare input data for the ONNX Runtime session
-        outputs = self.session.run(
+        return self.session.run(
             {
                 input_names[0]: np.ascontiguousarray(rgb_tensor),
                 input_names[1]: np.ascontiguousarray(thermal_tensor),
             },
             None,
         )
-        return outputs
 
-
-    def _preprocessing(self, rgb_image: np.ndarray, thermal_image: np.ndarray):
-        rgb = self._preprocess_rgb(rgb_image)
-        thermal = self._preprocess_thermal(thermal_image)
-        
-        # add batch dimension to rgb
-        rgb = np.expand_dims(rgb.transpose(2, 0, 1), axis=0).astype(np.float32)  # (1,3,H,W)
-        thermal = np.expand_dims(np.expand_dims(thermal, axis=0), axis=0).astype(np.float32)  # (1,1,H,W)
-        logger.debug("Input RGB shape: %s min/max: (%s, %s)", rgb.shape, rgb.min(), rgb.max())
-        logger.debug(
-            "Input Thermal shape: %s min/max: (%s, %s)",
-            thermal.shape,
-            thermal.min(),
-            thermal.max(),
-        )
-
-        return rgb, thermal
-
-    def _postprocessing(self, outputs: List[np.ndarray]) -> List[np.ndarray]:
+    def _postprocessing(self, outputs):
         results = DetectionListResult()
         for out in outputs[0]:
-            scale_w =  self.h_w[1]/max(self.h_w)
-            scale_h =  self.h_w[0]/max(self.h_w)
-
-            to_save = out[: int(scale_h * 640), : int(scale_w * 640)]  # remove padding, also 640 is fixed for now but it should be changed
-            results.append(DectObject(full_image_segm=to_save))
-
+            h, w = self._orig_hw
+            scale_h = h / max(self._orig_hw)
+            scale_w = w / max(self._orig_hw)
+            # Remove padding (640 is fixed for now)
+            cropped = out[: int(scale_h * 640), : int(scale_w * 640)]
+            results.append(DectObject(full_image_segm=cropped))
         return results

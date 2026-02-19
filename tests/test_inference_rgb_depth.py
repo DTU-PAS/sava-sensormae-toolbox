@@ -1,108 +1,91 @@
+"""Test script for RGB + Depth inference (object detection & segmentation).
+
+Usage::
+
+    python tests/test_inference_rgb_depth.py \\
+        --config configs/sensormae_onnx_rgbdepth_det.yaml \\
+        --rgb data/samples/vod/RGB/07752.png \\
+        --out data/samples/test_output_depth.png
+
+The depth image is located automatically by replacing ``/RGB/`` with
+``/Depth/`` in the given RGB path.
+"""
+
 import os
 import sys
 import argparse
+
+import cv2
 import numpy as np
-from PIL import Image
-from functools import partial
-import yaml
 
-CLASSES = [
-    # "animals",              # 0
-    "car",             # 1
-    "large_vehicle",       # 2
-    "two_wheeler", # 3
-    "pedestrian",          # 4
-    # "miscellaneous",        # 5
-]
-
-# Ensure the repository root is on sys.path when running this file directly
+# Ensure repo root is on sys.path when running directly
 THIS_DIR = os.path.dirname(__file__)
 REPO_ROOT = os.path.abspath(os.path.join(THIS_DIR, ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from sava_sensormae_toolbox.inference import InferenceEngine, SensorMAEObjDet_RGBDepth
+from sava_sensormae_toolbox.inference import InferenceEngine
+
 
 def find_depth_path(rgb_path: str) -> str:
-    """Return the infrared path by replacing 'Visible' with 'Infrared'.
-
-    Raises FileNotFoundError if the resulting path does not exist.
-    """
+    """Derive the depth image path from the RGB path (``/RGB/`` → ``/Depth/``)."""
     rgb_path = os.path.abspath(rgb_path)
-    rgb_token = f"{os.sep}RGB{os.sep}"
-    if rgb_token not in rgb_path:
+    token = f"{os.sep}RGB{os.sep}"
+    if token not in rgb_path:
         raise FileNotFoundError(
-            f"Expected 'RGB' in the path to locate the matching depth image: {rgb_path}"
+            f"Expected '/RGB/' in path to locate the matching depth image: {rgb_path}"
         )
-    depth_path = rgb_path.replace(rgb_token, f"{os.sep}Depth{os.sep}")
-    
+    depth_path = rgb_path.replace(token, f"{os.sep}Depth{os.sep}")
     if not os.path.isfile(depth_path):
-        raise FileNotFoundError(
-            f"Infrared image not found at: {depth_path} (derived from {rgb_path})"
-        )
-            
+        raise FileNotFoundError(f"Depth image not found: {depth_path}")
     return depth_path
 
 
-def run_inference(config_path: str, visible_path: str, output_path: str) -> None:
-    # Validate inputs
+def run_inference(config_path: str, rgb_path: str, output_path: str) -> None:
     if not os.path.isfile(config_path):
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-    if not os.path.isfile(visible_path):
-        raise FileNotFoundError(f"Visible image not found: {visible_path}")
+        raise FileNotFoundError(f"Config not found: {config_path}")
+    if not os.path.isfile(rgb_path):
+        raise FileNotFoundError(f"RGB image not found: {rgb_path}")
 
-    # Resolve infrared path
-    depth_path = find_depth_path(visible_path)
+    depth_path = find_depth_path(rgb_path)
 
-    # Load images
-    rgb = Image.open(visible_path).convert("RGB")
-    depth = Image.open(depth_path).convert("L")
-   
-    model_class = None
+    # Load images with cv2 (consistent with the rest of the toolbox)
+    rgb = cv2.imread(rgb_path, cv2.IMREAD_UNCHANGED)
+    depth = cv2.imread(depth_path, cv2.IMREAD_GRAYSCALE)
 
-    # Load config
-    with open(args.config, "r") as yaml_file:
-        config = yaml.safe_load(yaml_file)
+    # Engine auto-selects the model from config (modalities + task)
+    engine = InferenceEngine(config_path)
+    results = engine.predict(rgb, depth)
 
-    if "segm" in config_path.lower():
-        model_class = partial(SensorMAESegm)
-    elif "det" in config_path.lower():
-        with open(config_path, "r") as yaml_file:
-            config = yaml.safe_load(yaml_file)
-        model_class = partial(SensorMAEObjDet_RGBDepth, num_classes=config.get("no_class", 20), confidence_threshold=config.get("confidence_threshold", 0.0), input_size=config.get("input_size", [384, 384]))
-    else:
-        raise ValueError("Config file name must indicate 'segm' or 'det' to select the model class.")
-    
-    # Create Inference Engine
-    inference_engine = InferenceEngine(config_path, model_class)
+    print(f"Results: {results}")
 
-    # Perform inference
-    results = inference_engine.predict(rgb, depth)
-    rgb = np.array(rgb)
-    depth = np.array(depth)
-    print(f"results: {results}")
-    # Save side-by-side panel
-    if "segm" in config_path.lower():
-        inference_engine.model.save_results(output_path, rgb, depth, inference_engine.model.apply_colormap(results[0].full_image_segm))
+    # Visualise based on task
+    task = engine.config.get("task", "").lower()
+    if task == "segmentation":
+        colored = engine.model.apply_colormap(results[0].full_image_segm)
+        engine.model.save_results(output_path, rgb, depth, colored)
         print("Segmentation mask shape:", results[0].full_image_segm.shape)
-    elif "det" in config_path.lower():
-        all_boxes = np.array(results.getbboxes())  # (N, 4) array of all detection boxes
-        all_labels = np.array([det.class_id for det in results])
-        all_scores = np.array([det.score for det in results])
-        annotated = inference_engine.model.scale_draw_boxes(all_boxes, rgb.copy(), labels=all_labels, scores=all_scores, class_names=CLASSES)
-        inference_engine.model.save_results(output_path, rgb, depth, annotated)
 
+    elif task == "detection":
+        class_names = engine.config.get("classes")
+        all_boxes = np.array(results.getbboxes())
+        all_labels = np.array([d.class_id for d in results])
+        all_scores = np.array([d.score for d in results])
+        annotated = engine.model.scale_draw_boxes(
+            all_boxes, rgb.copy(),
+            labels=all_labels, scores=all_scores, class_names=class_names,
+        )
+        engine.model.save_results(output_path, rgb, depth, annotated)
 
+    print(f"Output saved to {output_path}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run SensorMAE segmentation on RGB + IR images")
+    parser = argparse.ArgumentParser(description="Run SensorMAE inference on RGB + Depth images")
     parser.add_argument("--config", required=True, help="Path to YAML config file")
-    parser.add_argument("--visible", required=True, help="Path to Visible (RGB) image")
-    parser.add_argument(
-        "--out",
-        default="data/samples/test_output.png",
-        help="Output image path (side-by-side panel)",
-    )
+    parser.add_argument("--rgb", "--visible", required=True, dest="rgb",
+                        help="Path to visible (RGB) image")
+    parser.add_argument("--out", default="data/samples/test_output_depth.png",
+                        help="Output image path")
     args = parser.parse_args()
-    run_inference(args.config, args.visible, args.out)
+    run_inference(args.config, args.rgb, args.out)

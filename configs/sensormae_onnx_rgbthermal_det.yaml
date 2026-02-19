@@ -1,5 +1,11 @@
  # Author: PAS Group DTU
 
+# Modality & task configuration
+modalities:
+  primary: rgb
+  secondary: thermal
+task: detection
+
 # Runtime configuration
 model_path: data/20250923_130344_rgb-thermal_vit-medium_RFDETRHead_LLVIP.onnx
 runtime: onnxruntime
@@ -12,5 +18,7 @@ batch_size: 1 # For now, 1 is the only accepted value
 input_size: [640, 640] # [height, width]
 
 confidence_threshold: 0.7
-no_class: 1
+num_classes: 1
+classes:
+  - person
  

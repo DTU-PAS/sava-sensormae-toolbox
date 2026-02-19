@@ -1,91 +1,88 @@
+"""Test script for RGB + Thermal inference (object detection & segmentation).
+
+Usage::
+
+    python tests/test_inference_rgb_therm.py \\
+        --config configs/sensormae_onnx_rgbthermal_det.yaml \\
+        --rgb data/samples/LLVIP/Visible/010001.jpg \\
+        --out data/samples/test_output_thermal.png
+
+The infrared image is located automatically by replacing ``/Visible/``
+with ``/Infrared/`` in the given RGB path.
+"""
+
 import os
 import sys
 import argparse
-import numpy as np
-import cv2
-from functools import partial
-import yaml
 
-# Ensure the repository root is on sys.path when running this file directly
+import cv2
+import numpy as np
+
+# Ensure repo root is on sys.path when running directly
 THIS_DIR = os.path.dirname(__file__)
 REPO_ROOT = os.path.abspath(os.path.join(THIS_DIR, ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from sava_sensormae_toolbox.inference import InferenceEngine, SensorMAESegm_RGBThermal, SensorMAEObjDet_RGBThermal
+from sava_sensormae_toolbox.inference import InferenceEngine
+
 
 def find_infrared_path(visible_path: str) -> str:
-    """Return the infrared path by replacing 'Visible' with 'Infrared'.
-
-    Raises FileNotFoundError if the resulting path does not exist.
-    """
+    """Derive the infrared path from the visible path (``/Visible/`` → ``/Infrared/``)."""
     visible_path = os.path.abspath(visible_path)
-    vis_token = f"{os.sep}Visible{os.sep}"
-    if vis_token not in visible_path:
+    token = f"{os.sep}Visible{os.sep}"
+    if token not in visible_path:
         raise FileNotFoundError(
-            f"Expected 'Visible' in the path to locate the matching infrared image: {visible_path}"
+            f"Expected '/Visible/' in path to locate the matching infrared image: {visible_path}"
         )
-    infrared_path = visible_path.replace(vis_token, f"{os.sep}Infrared{os.sep}")
+    infrared_path = visible_path.replace(token, f"{os.sep}Infrared{os.sep}")
     if not os.path.isfile(infrared_path):
-        raise FileNotFoundError(
-            f"Infrared image not found at: {infrared_path} (derived from {visible_path})"
-        )
+        raise FileNotFoundError(f"Infrared image not found: {infrared_path}")
     return infrared_path
 
 
-def run_inference(config_path: str, visible_path: str, output_path: str) -> None:
-    # Validate inputs
+def run_inference(config_path: str, rgb_path: str, output_path: str) -> None:
     if not os.path.isfile(config_path):
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-    if not os.path.isfile(visible_path):
-        raise FileNotFoundError(f"Visible image not found: {visible_path}")
+        raise FileNotFoundError(f"Config not found: {config_path}")
+    if not os.path.isfile(rgb_path):
+        raise FileNotFoundError(f"RGB image not found: {rgb_path}")
 
-    # Resolve infrared path
-    infrared_path = find_infrared_path(visible_path)
+    infrared_path = find_infrared_path(rgb_path)
 
-    # Load images
-    rgb = cv2.imread(visible_path, cv2.IMREAD_UNCHANGED)
+    # Load images with cv2 (consistent with the rest of the toolbox)
+    rgb = cv2.imread(rgb_path, cv2.IMREAD_UNCHANGED)
     thermal = cv2.imread(infrared_path, cv2.IMREAD_GRAYSCALE)
 
-    model_class = None
+    # Engine auto-selects the model from config (modalities + task)
+    engine = InferenceEngine(config_path)
+    results = engine.predict(rgb, thermal)
 
-    # Load config
-    with open(args.config, "r") as yaml_file:
-        config = yaml.safe_load(yaml_file)
+    print(f"Results: {results}")
 
-    if "segm" in config_path.lower():
-        model_class = partial(SensorMAESegm_RGBThermal)
-    elif "det" in config_path.lower():
-        with open(config_path, "r") as yaml_file:
-            config = yaml.safe_load(yaml_file)
-        model_class = partial(SensorMAEObjDet_RGBThermal, num_classes=config.get("no_class", 20), confidence_threshold=config.get("confidence_threshold", 0.0))
-    else:
-        raise ValueError("Config file name must indicate 'segm' or 'det' to select the model class.")
-    
-    # Create Inference Engine
-    inference_engine = InferenceEngine(config_path, model_class)
-
-    # Perform inference
-    results = inference_engine.predict(rgb, thermal)
-
-    # Save side-by-side panel
-    if "segm" in config_path.lower():
-        inference_engine.model.save_results(output_path, rgb, thermal, inference_engine.model.apply_colormap(results[0].full_image_segm))
+    # Visualise based on task
+    task = engine.config.get("task", "").lower()
+    if task == "segmentation":
+        colored = engine.model.apply_colormap(results[0].full_image_segm)
+        engine.model.save_results(output_path, rgb, thermal, colored)
         print("Segmentation mask shape:", results[0].full_image_segm.shape)
-    elif "det" in config_path.lower():
-        inference_engine.model.save_results(output_path, rgb, thermal, inference_engine.model.scale_draw_boxes(results[0].xywh, rgb.copy()))
 
+    elif task == "detection":
+        class_names = engine.config.get("classes")
+        annotated = engine.model.scale_draw_boxes(
+            results[0].xywh, rgb.copy(), scale_to_image=True,
+            class_names=class_names,
+        )
+        engine.model.save_results(output_path, rgb, thermal, annotated)
 
+    print(f"Output saved to {output_path}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run SensorMAE segmentation on RGB + IR images")
-    parser.add_argument("config", help="Path to YAML config file")
-    parser.add_argument("visible", help="Path to Visible (RGB) image")
-    parser.add_argument(
-        "--out",
-        default="data/samples/test_output.png",
-        help="Output image path (side-by-side panel)",
-    )
+    parser = argparse.ArgumentParser(description="Run SensorMAE inference on RGB + Thermal images")
+    parser.add_argument("--config", required=True, help="Path to YAML config file")
+    parser.add_argument("--rgb", "--visible", required=True, dest="rgb",
+                        help="Path to visible (RGB) image")
+    parser.add_argument("--out", default="data/samples/test_output_thermal.png",
+                        help="Output image path")
     args = parser.parse_args()
-    run_inference(args.config, args.visible, args.out)
+    run_inference(args.config, args.rgb, args.out)

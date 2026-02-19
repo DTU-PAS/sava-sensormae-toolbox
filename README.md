@@ -29,8 +29,8 @@ sava-sensormae-toolbox/
 ├── data/
 │   ├── *.onnx                               # ONNX model weights
 │   └── samples/                             # Example paired images
-│       ├── FMB/{Visible,Infrared}/
-│       ├── LLVIP/{Visible,Infrared}/
+│       ├── FMB/{RGB,Thermal}/
+│       ├── LLVIP/{RGB,Thermal}/
 │       ├── kitti/{RGB,Depth}/
 │       └── vod/{RGB,Depth}/
 ├── sava_sensormae_toolbox/                  # Main Python package
@@ -175,17 +175,17 @@ The script auto-derives the depth image path by replacing `/RGB/` with `/Depth/`
 # Object detection
 python tests/test_inference_rgb_therm.py \
   --config configs/sensormae_onnx_rgbthermal_det.yaml \
-  --rgb data/samples/LLVIP/Visible/180154.jpg \
+  --rgb data/samples/LLVIP/RGB/180154.jpg \
   --out data/samples/test_output_thermal_det.png
 
 # Segmentation
 python tests/test_inference_rgb_therm.py \
   --config configs/sensormae_onnx_rgbthermal_segm.yaml \
-  --rgb data/samples/FMB/Visible/00040.png \
+  --rgb data/samples/FMB/RGB/00040.png \
   --out data/samples/test_output_thermal_segm.png
 ```
 
-The script auto-derives the infrared image path by replacing `/Visible/` with `/Infrared/`.
+The script auto-derives the thermal image path by replacing `/RGB/` with `/Thermal/`.
 
 ### Arguments (both scripts)
 
@@ -233,8 +233,8 @@ For thermal models the usage is identical — just swap the config and images:
 ```python
 engine = InferenceEngine("configs/sensormae_onnx_rgbthermal_segm.yaml")
 
-rgb     = cv2.imread("data/samples/FMB/Visible/00040.png", cv2.IMREAD_UNCHANGED)
-thermal = cv2.imread("data/samples/FMB/Infrared/00040.png", cv2.IMREAD_GRAYSCALE)
+rgb     = cv2.imread("data/samples/FMB/RGB/00040.png", cv2.IMREAD_UNCHANGED)
+thermal = cv2.imread("data/samples/FMB/Thermal/00040.png", cv2.IMREAD_GRAYSCALE)
 
 results = engine.predict(rgb, thermal)
 

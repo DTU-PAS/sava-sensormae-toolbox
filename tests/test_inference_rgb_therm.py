@@ -27,18 +27,18 @@ if REPO_ROOT not in sys.path:
 from sava_sensormae_toolbox.inference import InferenceEngine
 
 
-def find_infrared_path(visible_path: str) -> str:
-    """Derive the infrared path from the visible path (``/Visible/`` → ``/Infrared/``)."""
-    visible_path = os.path.abspath(visible_path)
-    token = f"{os.sep}Visible{os.sep}"
-    if token not in visible_path:
+def find_infrared_path(rgb_path: str) -> str:
+    """Derive the infrared path from the visible path (``/RGB/`` → ``/Thermal/``)."""
+    rgb_path = os.path.abspath(rgb_path)
+    token = f"{os.sep}RGB{os.sep}"
+    if token not in rgb_path:
         raise FileNotFoundError(
-            f"Expected '/Visible/' in path to locate the matching infrared image: {visible_path}"
+            f"Expected '/RGB/' in path to locate the matching infrared image: {visible_path}"
         )
-    infrared_path = visible_path.replace(token, f"{os.sep}Infrared{os.sep}")
-    if not os.path.isfile(infrared_path):
-        raise FileNotFoundError(f"Infrared image not found: {infrared_path}")
-    return infrared_path
+    thermal_path = rgb_path.replace(token, f"{os.sep}Thermal{os.sep}")
+    if not os.path.isfile(thermal_path):
+        raise FileNotFoundError(f"Infrared image not found: {thermal_path}")
+    return thermal_path
 
 
 def run_inference(config_path: str, rgb_path: str, output_path: str) -> None:

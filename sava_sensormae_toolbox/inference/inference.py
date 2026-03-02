@@ -21,7 +21,6 @@ from .base import Model
 from .sensormae_rgbthermal_objdet import SensorMAEObjDet_RGBThermal
 from .sensormae_rgbthermal_segm import SensorMAESegm_RGBThermal
 from .sensormae_rgbdepth_objdet import SensorMAEObjDet_RGBDepth
-from .sensormae_rgbdepth_segm import SensorMAESegm_RGBDepth
 
 # ---------------------------------------------------------------------------
 # Registry:  (primary_modality, secondary_modality, task) -> Model subclass
@@ -30,7 +29,6 @@ MODEL_REGISTRY: Dict[Tuple[str, str, str], Type[Model]] = {
     ("rgb", "thermal", "detection"):    SensorMAEObjDet_RGBThermal,
     ("rgb", "thermal", "segmentation"): SensorMAESegm_RGBThermal,
     ("rgb", "depth",   "detection"):    SensorMAEObjDet_RGBDepth,
-    ("rgb", "depth",   "segmentation"): SensorMAESegm_RGBDepth,
 }
 
 

@@ -64,7 +64,20 @@ class SensorMAEObjDet_RGBDepth(SensorMAEObjectDetection):
         depth = cv2.resize(depth, (target_hw[1], target_hw[0]),
                            interpolation=cv2.INTER_LINEAR)
         depth = depth.astype(np.float32) / 255.0
-        depth = (depth - DEPTH_MEAN) / DEPTH_STD
+        # depth = (depth - DEPTH_MEAN) / DEPTH_STD
+
+        # valid = depth > 0
+        # if valid.sum() == 0:
+        #     return np.zeros((1, *depth.shape), dtype=np.float32)
+
+        # lo = np.percentile(depth[valid], 1)
+        # hi = np.percentile(depth[valid], 99)
+        # clipped = np.clip(depth, lo, hi)
+        # norm = (clipped - lo) / (hi - lo + 1e-6)
+        # norm = 1.0 - norm                   # invert: close = bright
+        # norm[~valid] = 0.0
+        # print(f"norm shape={norm.shape}  min/max={norm.min():.3f}/{norm.max():.3f}  valid_pixels={valid.sum()}")
+        # print(f"Depth type={depth.dtype}  min/max={depth.min()}/{depth.max()}  valid_pixels={valid.sum()}")
         return depth[np.newaxis, ...]  # [1, H, W]
 
     # ------------------------------------------------------------------
@@ -73,6 +86,7 @@ class SensorMAEObjDet_RGBDepth(SensorMAEObjectDetection):
     def _preprocessing(self, rgb_image: np.ndarray, modality_x_image: np.ndarray):
         rgb = self._preprocess_rgb(rgb_image)           # [3, H, W]
         depth = self._preprocess_depth(modality_x_image, self.input_size)  # [1, H, W]
+        print(f"Preprocessed RGB shape: {rgb.shape}, Depth shape: {depth.shape}")
         combined = np.concatenate([rgb, depth], axis=0)[np.newaxis, ...]   # [1, 4, H, W]
 
         logger.debug("RGB   shape=%s  min/max=(%.3f, %.3f)", rgb.shape, rgb.min(), rgb.max())

@@ -55,8 +55,11 @@ def run_inference(config_path: str, rgb_path: str, output_path: str) -> None:
 
     # Engine auto-selects the model from config (modalities + task)
     engine = InferenceEngine(config_path)
+    import time
+    start_time = time.time()
     results = engine.predict(rgb, depth)
-
+    end_time = time.time()
+    print(f"Inference completed in {end_time - start_time:.2f} seconds.")
     print(f"Results: {results}")
 
     # Visualise based on task

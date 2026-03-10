@@ -30,15 +30,17 @@ class Model(ABC):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def __call__(self, rgb_image: np.ndarray, modality_x_image: np.ndarray):
+    def __call__(self, rgb_image: np.ndarray, modality_x_image: np.ndarray, **kwargs):
         """Shortcut for :meth:`predict`."""
-        return self.predict(rgb_image, modality_x_image)
+        return self.predict(rgb_image, modality_x_image, **kwargs)
 
-    def predict(self, rgb_image: np.ndarray, modality_x_image: np.ndarray):
+    def predict(self, rgb_image: np.ndarray, modality_x_image: np.ndarray, **kwargs):
         """Run the full pipeline: preprocess → infer → postprocess.
 
         Subclasses may override this if the data-flow between stages
         requires custom wiring (e.g. passing orig_size to postprocessing).
+        Extra ``**kwargs`` are accepted so that subclasses (e.g. 3D
+        detection) can receive additional data such as calibration.
         """
         preprocessed = self._preprocessing(rgb_image, modality_x_image)
         outputs = self._inference(preprocessed)

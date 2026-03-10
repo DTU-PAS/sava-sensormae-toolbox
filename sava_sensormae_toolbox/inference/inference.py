@@ -21,14 +21,16 @@ from .base import Model
 from .sensormae_rgbthermal_objdet import SensorMAEObjDet_RGBThermal
 from .sensormae_rgbthermal_segm import SensorMAESegm_RGBThermal
 from .sensormae_rgbdepth_objdet import SensorMAEObjDet_RGBDepth
+from .sensormae_rgbdepth_objdet3d import SensorMAEObjDet_RGBDepth3D
 
 # ---------------------------------------------------------------------------
 # Registry:  (primary_modality, secondary_modality, task) -> Model subclass
 # ---------------------------------------------------------------------------
 MODEL_REGISTRY: Dict[Tuple[str, str, str], Type[Model]] = {
-    ("rgb", "thermal", "detection"):    SensorMAEObjDet_RGBThermal,
-    ("rgb", "thermal", "segmentation"): SensorMAESegm_RGBThermal,
-    ("rgb", "depth",   "detection"):    SensorMAEObjDet_RGBDepth,
+    ("rgb", "thermal", "detection"):      SensorMAEObjDet_RGBThermal,
+    ("rgb", "thermal", "segmentation"):   SensorMAESegm_RGBThermal,
+    ("rgb", "depth",   "detection"):      SensorMAEObjDet_RGBDepth,
+    ("rgb", "depth",   "detection_3d"):   SensorMAEObjDet_RGBDepth3D,
 }
 
 
@@ -109,23 +111,31 @@ class InferenceEngine:
         if "num_select" in self.config:
             model_kwargs["num_select"] = self.config["num_select"]
 
+        # 3D detection-specific parameters
+        for key in ("head_type", "xbound", "ybound", "nms_radii",
+                     "score_threshold", "post_max_size", "class_names"):
+            if key in self.config:
+                model_kwargs[key] = self.config[key]
+
         self.model: Model = model_class(runtime=runtime, **model_kwargs)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def predict(self, rgb_image: np.ndarray, modality_x_image: np.ndarray):
+    def predict(self, rgb_image: np.ndarray, modality_x_image: np.ndarray, **kwargs):
         """Run inference on an RGB image and a secondary-modality image.
 
         Args:
             rgb_image: BGR numpy array (cv2 convention).
             modality_x_image: Secondary modality numpy array (grayscale or
                 multi-channel depending on the modality).
+            **kwargs: Additional data forwarded to the model (e.g. ``calib``
+                for 3D detection).
 
         Returns:
             Model-specific result structure (e.g. ``DetectionListResult``).
         """
-        return self.model(rgb_image, modality_x_image)
+        return self.model(rgb_image, modality_x_image, **kwargs)
 
     # ------------------------------------------------------------------
     # Internal helpers

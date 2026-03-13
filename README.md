@@ -229,13 +229,13 @@ The script auto-derives the thermal image path by replacing `/RGB/` with `/Therm
 # 2D object detection
 python tests/test_inference_rgb_depth.py \
   --config configs/sensormae_onnx_rgbdepth_det.yaml \
-  --rgb data/samples/VoD/RGB/00500.jpg \
-  --out data/samples/test_output_depth_det.png
+  --rgb data/samples/KITTI/RGB/006534.png \
+  --out data/samples/test_output_depth_2d.png
 
 # 3D object detection (BEV)
 python tests/test_inference_rgb_depth_3d.py \
   --config configs/sensormae_onnx_rgbdepth_det3d.yaml \
-  --rgb data/samples/KITTI/RGB/007454.png \
+  --rgb data/samples/KITTI/RGB/006534.png \
   --out data/samples/test_output_depth_3d.png
 ```
 

@@ -33,7 +33,7 @@ def find_infrared_path(rgb_path: str) -> str:
     token = f"{os.sep}RGB{os.sep}"
     if token not in rgb_path:
         raise FileNotFoundError(
-            f"Expected '/RGB/' in path to locate the matching infrared image: {visible_path}"
+            f"Expected '/RGB/' in path to locate the matching infrared image: {rgb_path}"
         )
     thermal_path = rgb_path.replace(token, f"{os.sep}Thermal{os.sep}")
     if not os.path.isfile(thermal_path):
@@ -59,20 +59,34 @@ def run_inference(config_path: str, rgb_path: str, output_path: str) -> None:
 
     print(f"Results: {results}")
 
+    # Thermal → magma colormap for visualisation
+    thermal_colored = cv2.applyColorMap(thermal, cv2.COLORMAP_MAGMA)
+
     # Visualise based on task
     task = engine.config.get("task", "").lower()
     if task == "segmentation":
-        colored = engine.model.apply_colormap(results[0].full_image_segm)
-        engine.model.save_results(output_path, rgb, thermal, colored)
-        print("Segmentation mask shape:", results[0].full_image_segm.shape)
+        mask = results[0].full_image_segm
+        colored = engine.model.apply_colormap(mask)
+        # Blend segmentation overlay on both RGB and thermal
+        h, w = rgb.shape[:2]
+        colored_resized = cv2.resize(colored, (w, h), interpolation=cv2.INTER_NEAREST)
+        alpha = 0.5
+        overlay_rgb = cv2.addWeighted(rgb, 1 - alpha, colored_resized, alpha, 0)
+        overlay_therm = cv2.addWeighted(thermal_colored, 1 - alpha, colored_resized, alpha, 0)
+        engine.model.save_results(output_path, overlay_rgb, overlay_therm)
+        print("Segmentation mask shape:", mask.shape)
 
     elif task == "detection":
         class_names = engine.config.get("classes")
-        annotated = engine.model.scale_draw_boxes(
+        annotated_rgb = engine.model.scale_draw_boxes(
             results[0].xywh, rgb.copy(), scale_to_image=True,
             class_names=class_names,
         )
-        engine.model.save_results(output_path, rgb, thermal, annotated)
+        annotated_therm = engine.model.scale_draw_boxes(
+            results[0].xywh, thermal_colored, scale_to_image=True,
+            class_names=class_names,
+        )
+        engine.model.save_results(output_path, annotated_rgb, annotated_therm)
 
     print(f"Output saved to {output_path}")
 

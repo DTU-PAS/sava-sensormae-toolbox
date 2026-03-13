@@ -1,14 +1,14 @@
-"""Test script for RGB + Depth inference (object detection & segmentation).
+"""Test script for RGB + Depth 2D object detection.
 
 Usage::
 
-    python tests/test_inference_rgb_depth.py \\
-        --config configs/sensormae_onnx_rgbdepth_det.yaml \\
-        --rgb data/samples/vod/RGB/07752.png \\
-        --out data/samples/test_output_depth.png
+    python tests/test_inference_rgb_depth.py \
+        --config configs/sensormae_onnx_rgbdepth_det.yaml \
+        --rgb data/samples/KITTI/RGB/006525.png \
+        --out data/samples/test_2d_006525.png
 
-The depth image is located automatically by replacing ``/RGB/`` with
-``/Depth/`` in the given RGB path.
+The metric depth ``.npy`` file is located automatically by replacing
+``/RGB/`` with ``/Depth/`` in the given RGB path.
 """
 
 import os
@@ -28,16 +28,17 @@ from sava_sensormae_toolbox.inference import InferenceEngine
 
 
 def find_depth_path(rgb_path: str) -> str:
-    """Derive the depth image path from the RGB path (``/RGB/`` → ``/Depth/``)."""
+    """Derive the metric depth ``.npy`` path from the RGB path."""
     rgb_path = os.path.abspath(rgb_path)
     token = f"{os.sep}RGB{os.sep}"
     if token not in rgb_path:
         raise FileNotFoundError(
-            f"Expected '/RGB/' in path to locate the matching depth image: {rgb_path}"
+            f"Expected '/RGB/' in path to locate the matching depth file: {rgb_path}"
         )
     depth_path = rgb_path.replace(token, f"{os.sep}Depth{os.sep}")
+    depth_path = os.path.splitext(depth_path)[0] + ".npy"
     if not os.path.isfile(depth_path):
-        raise FileNotFoundError(f"Depth image not found: {depth_path}")
+        raise FileNotFoundError(f"Metric depth .npy not found: {depth_path}")
     return depth_path
 
 
@@ -49,42 +50,39 @@ def run_inference(config_path: str, rgb_path: str, output_path: str) -> None:
 
     depth_path = find_depth_path(rgb_path)
 
-    # Load images with cv2 (consistent with the rest of the toolbox)
     rgb = cv2.imread(rgb_path, cv2.IMREAD_UNCHANGED)
-    depth = cv2.imread(depth_path, cv2.IMREAD_GRAYSCALE)
+    metric_depth = np.load(depth_path).astype(np.float32)
 
-    # Engine auto-selects the model from config (modalities + task)
     engine = InferenceEngine(config_path)
-    import time
-    start_time = time.time()
-    results = engine.predict(rgb, depth)
-    end_time = time.time()
-    print(f"Inference completed in {end_time - start_time:.2f} seconds.")
+    results = engine.predict(rgb, metric_depth)
     print(f"Results: {results}")
 
-    # Visualise based on task
-    task = engine.config.get("task", "").lower()
-    if task == "segmentation":
-        colored = engine.model.apply_colormap(results[0].full_image_segm)
-        engine.model.save_results(output_path, rgb, depth, colored)
-        print("Segmentation mask shape:", results[0].full_image_segm.shape)
+    class_names = engine.config.get("classes")
+    all_boxes = np.array(results.getbboxes())
+    all_labels = np.array([d.class_id for d in results])
+    all_scores = np.array([d.score for d in results])
 
-    elif task == "detection":
-        class_names = engine.config.get("classes")
-        all_boxes = np.array(results.getbboxes())
-        all_labels = np.array([d.class_id for d in results])
-        all_scores = np.array([d.score for d in results])
-        annotated = engine.model.scale_draw_boxes(
-            all_boxes, rgb.copy(),
-            labels=all_labels, scores=all_scores, class_names=class_names,
-        )
-        engine.model.save_results(output_path, rgb, depth, annotated)
+    # Draw boxes on RGB
+    annotated_rgb = engine.model.scale_draw_boxes(
+        all_boxes, rgb.copy(),
+        labels=all_labels, scores=all_scores, class_names=class_names,
+    )
 
+    # Depth: metric → [0,255] → magma colormap → draw boxes
+    depth_vis = engine.model._metric_to_visual(metric_depth)
+    depth_colored = cv2.applyColorMap((depth_vis * 255).astype(np.uint8),
+                                      cv2.COLORMAP_MAGMA)
+    annotated_depth = engine.model.scale_draw_boxes(
+        all_boxes, depth_colored,
+        labels=all_labels, scores=all_scores, class_names=class_names,
+    )
+
+    engine.model.save_results(output_path, annotated_rgb, annotated_depth)
     print(f"Output saved to {output_path}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run SensorMAE inference on RGB + Depth images")
+    parser = argparse.ArgumentParser(description="Run SensorMAE 2D inference on RGB + metric depth")
     parser.add_argument("--config", required=True, help="Path to YAML config file")
     parser.add_argument("--rgb", "--visible", required=True, dest="rgb",
                         help="Path to visible (RGB) image")

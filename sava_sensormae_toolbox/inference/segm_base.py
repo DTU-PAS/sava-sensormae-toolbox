@@ -15,6 +15,7 @@ class SensorMAESegmentation(Model):
     """Base for all SensorMAE segmentation models (any modality pair)."""
 
     def __init__(self, runtime, **kwargs):
-        super().__init__(runtime, **kwargs)
+        super().__init__()
+        self.session = runtime
         # Original image dimensions for un-padding the output mask
         self._orig_hw: tuple | None = None

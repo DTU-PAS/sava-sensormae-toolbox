@@ -1,8 +1,9 @@
-"""Intermediate base class for SensorMAE object-detection models.
+"""Base class for SensorMAE object-detection models (2D and 3D).
 
-Collects detection-specific utilities (softmax, box conversion, drawing)
-so that individual modality leaf classes only need to implement the
-preprocessing, inference, and postprocessing pipeline.
+Provides the full inference pipeline (predict → preprocess → infer →
+postprocess), a unified ONNX inference method, and shared detection
+utilities.  Leaf classes only need to implement ``_preprocessing``
+(returning a dict keyed by ONNX input names) and ``_postprocessing``.
 """
 
 from typing import List, Optional
@@ -14,17 +15,20 @@ from .base import Model
 
 
 class SensorMAEObjectDetection(Model):
-    """Base for all SensorMAE object-detection models (any modality pair)."""
+    """Pipeline base for all SensorMAE object-detection models."""
 
     def __init__(self, runtime, *, num_classes: int = 20,
                  confidence_threshold: float = 0.0, **kwargs):
-        super().__init__(runtime, **kwargs)
+        super().__init__()
+        self.session = runtime
         self.num_classes = num_classes
         self.confidence_threshold = confidence_threshold
 
-    # ------------------------------------------------------------------
-    # Detection-specific static helpers
-    # ------------------------------------------------------------------
+    def _inference(self, feed_dict):
+        input_names = [inp.name for inp in self.session.get_inputs()]
+        feed = {name: np.ascontiguousarray(feed_dict[name]) for name in input_names}
+        return self.session.run(feed, None)
+
     @staticmethod
     def softmax(x: np.ndarray, axis=None) -> np.ndarray:
         x = x - x.max(axis=axis, keepdims=True)
@@ -44,9 +48,6 @@ class SensorMAEObjectDetection(Model):
         return np.stack([x_c - 0.5 * w, y_c - 0.5 * h,
                          x_c + 0.5 * w, y_c + 0.5 * h], axis=-1)
 
-    # ------------------------------------------------------------------
-    # Visualisation helpers
-    # ------------------------------------------------------------------
     def scale_draw_boxes(
         self,
         boxes: np.ndarray,
@@ -57,27 +58,21 @@ class SensorMAEObjectDetection(Model):
         class_names: Optional[List[str]] = None,
         scale_to_image: bool = False,
     ) -> np.ndarray:
-        """Draw bounding boxes (with optional labels/scores) on an image.
+        """Draw 2D bounding boxes on an image.
 
         Args:
-            boxes: ``(N, 4)`` array of ``[x_min, y_min, x_max, y_max]``.
-                   If *scale_to_image* is ``True`` the coordinates are assumed
-                   normalised to ``[0, 1]`` and will be scaled to the image size.
-            image: RGB/BGR image ``(H, W, 3)`` to draw on (modified in-place).
-            labels: Optional ``(N,)`` int array of class indices.
-            scores: Optional ``(N,)`` float array of confidence scores.
-            class_names: Optional list mapping class index → name.
-            scale_to_image: If ``True``, multiply boxes by ``max(H, W)``
-                            (useful for pad-and-resize models).
-
-        Returns:
-            The annotated image.
+            boxes: ``(N, 4)`` xyxy array.  If *scale_to_image* the coords
+                   are normalised to ``[0, 1]`` and will be scaled by
+                   ``max(H, W)``.
+            image: BGR image ``(H, W, 3)`` — modified in-place.
+            labels: ``(N,)`` int class indices.
+            scores: ``(N,)`` float confidence scores.
+            class_names: List mapping class index → display name.
+            scale_to_image: Scale normalised boxes to image dimensions.
         """
         boxes = np.asarray(boxes, dtype=np.float64).copy()
         if scale_to_image:
-            h, w = image.shape[:2]
-            scale_up = max(h, w)
-            boxes *= scale_up
+            boxes *= max(image.shape[:2])
         boxes = boxes.astype(np.int32)
 
         color = (0, 255, 0)

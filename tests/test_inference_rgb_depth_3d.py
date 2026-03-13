@@ -22,6 +22,8 @@ import argparse
 
 import cv2
 import numpy as np
+from typing import Dict
+import time
 
 # Ensure repo root is on sys.path when running directly
 THIS_DIR = os.path.dirname(__file__)
@@ -83,6 +85,33 @@ def find_velodyne_path(rgb_path: str) -> str | None:
     bin_path = os.path.splitext(bin_path)[0] + ".bin"
     return bin_path if os.path.isfile(bin_path) else None
 
+def parse_kitti_calib(calib_path: str) -> Dict[str, np.ndarray]:
+    """Parse a KITTI calibration .txt file."""
+    data: Dict[str, np.ndarray] = {}
+    with open(calib_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line or ":" not in line:
+                continue
+            key, vals = line.split(":", 1)
+            data[key.strip()] = np.array(vals.strip().split(), dtype=np.float32)
+
+    P2 = data["P2"].reshape(3, 4)
+    R0 = data["R0_rect"].reshape(3, 3)
+    Tr = data["Tr_velo_to_cam"].reshape(3, 4)
+    Tr_4x4 = np.eye(4, dtype=np.float32)
+    Tr_4x4[:3, :] = Tr
+    R0_4x4 = np.eye(4, dtype=np.float32)
+    R0_4x4[:3, :3] = R0
+
+    return {
+        "P2": P2,
+        "R0_rect": R0,
+        "Tr_velo_to_cam": Tr_4x4,
+        "R0_rect_4x4": R0_4x4,
+        "intrinsics": P2[:3, :3].copy(),
+        "cam2lidar": (np.linalg.inv(Tr_4x4) @ np.linalg.inv(R0_4x4)).astype(np.float32),
+    }
 
 def run_inference(
     config_path: str,
@@ -101,22 +130,18 @@ def run_inference(
     # Load inputs
     rgb = cv2.imread(rgb_path, cv2.IMREAD_UNCHANGED)
     metric_depth = np.load(depth_npy_path).astype(np.float32)
-
-    # Load raw LiDAR points if available (required for sparse models)
-    lidar_points = None
-    if velodyne_path is not None:
-        pcd = np.fromfile(velodyne_path, dtype=np.float32).reshape(-1, 4)
-        lidar_points = pcd[:, :3].copy()  # xyz only
-        print(f"Loaded {lidar_points.shape[0]} LiDAR points from {velodyne_path}")
+    pcd = np.fromfile(velodyne_path, dtype=np.float32).reshape(-1, 4)
+    lidar_points = pcd[:, :3].copy()  # xyz only
+    calib = parse_kitti_calib(calib_path)
 
     # Engine auto-selects the 3D model from config (task = detection_3d)
     engine = InferenceEngine(config_path)
-    import time
-    start_time = time.time()
-    results = engine.predict(rgb, metric_depth, calib=calib_path,
-                             lidar_points=lidar_points)
-    end_time = time.time()
-    print(f"Inference completed in {end_time - start_time:.2f} seconds.")
+    t1 = time.perf_counter()
+    results = engine.predict(rgb, metric_depth,
+                            lidar_points = lidar_points, calib = calib)
+    
+    t2 = time.perf_counter()
+    print(f"Inference time = {t2-t1:.3f}s")
     print(f"3D detections: {len(results)}")
     class_names = engine.config.get("class_names")
     for i, det in enumerate(results):
@@ -132,15 +157,21 @@ def run_inference(
     # Visualise: project 3D boxes onto original image
     model = engine.model
     lidar2img = model.compute_lidar2img()
-    annotated = model.draw_3d_boxes(
+    annotated_rgb = model.draw_3d_boxes(
         rgb.copy(), results, lidar2img, class_names=class_names,
     )
 
-    # Depth visualisation (for the side-by-side panel)
-    depth_vis = model._metric_to_visual(metric_depth)  # [H, W] float32 0..1
+    # Depth visualisation: metric → [0,255] uint8 → magma colormap → draw boxes
+    depth_vis = model._metric_to_visual(metric_depth)
     depth_vis_uint8 = (depth_vis * 255).astype(np.uint8)
+    depth_colored = cv2.applyColorMap(depth_vis_uint8, cv2.COLORMAP_MAGMA)
 
-    model.save_results(output_path, rgb, depth_vis_uint8, annotated)
+    annotated_depth = model.draw_3d_boxes(
+        depth_colored, results, lidar2img, class_names=class_names,
+    )
+
+    # model.save_results(output_path, rgb, depth_vis_uint8, annotated)
+    model.save_results(output_path, annotated_rgb, annotated_depth)
     print(f"Output saved to {output_path}")
 
 

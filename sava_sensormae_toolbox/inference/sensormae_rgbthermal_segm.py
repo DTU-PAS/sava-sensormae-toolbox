@@ -3,6 +3,7 @@
 from typing import List
 
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 import logging
 
@@ -80,3 +81,10 @@ class SensorMAESegm_RGBThermal(SensorMAESegmentation):
             cropped = out[: int(scale_h * 640), : int(scale_w * 640)]
             results.append(DectObject(full_image_segm=cropped))
         return results
+
+    @staticmethod
+    def apply_colormap(mask: np.ndarray, num_classes: int = 21) -> np.ndarray:
+        """Convert class-index mask to RGB using a matplotlib colormap."""
+        cmap = plt.cm.get_cmap("tab20", num_classes)
+        colored = cmap(mask.astype(int))[:, :, :3]
+        return (colored * 255).astype(np.uint8)

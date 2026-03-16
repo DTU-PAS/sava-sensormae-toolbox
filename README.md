@@ -212,13 +212,13 @@ nms_radii:
 python tests/test_inference_rgb_therm.py \
   --config configs/sensormae_onnx_rgbthermal_det.yaml \
   --rgb data/samples/LLVIP/RGB/180154.jpg \
-  --out data/samples/test_output_thermal_det.png
+  --out data/test_output_rgb_therm_2d_det.png
 
 # Segmentation
 python tests/test_inference_rgb_therm.py \
   --config configs/sensormae_onnx_rgbthermal_segm.yaml \
   --rgb data/samples/FMB/RGB/00040.png \
-  --out data/samples/test_output_thermal_segm.png
+  --out data/test_output_rgb_therm_2d_segm.png
 ```
 
 The script auto-derives the thermal image path by replacing `/RGB/` with `/Thermal/`.
@@ -229,14 +229,14 @@ The script auto-derives the thermal image path by replacing `/RGB/` with `/Therm
 # 2D object detection
 python tests/test_inference_rgb_depth.py \
   --config configs/sensormae_onnx_rgbdepth_det.yaml \
-  --rgb data/samples/KITTI/RGB/006534.png \
-  --out data/samples/test_output_depth_2d.png
+  --rgb data/samples/KITTI/RGB/006810.png \
+  --out data/test_output_rgb_depth_2d_det.png
 
 # 3D object detection (BEV)
 python tests/test_inference_rgb_depth_3d.py \
   --config configs/sensormae_onnx_rgbdepth_det3d.yaml \
-  --rgb data/samples/KITTI/RGB/006534.png \
-  --out data/samples/test_output_depth_3d.png
+  --rgb /home/bdasz/Desktop/SAVA/code/sava-sensormae-toolbox/data/samples/VoD/RGB/00500.jpg \
+  --out data/test_output_rgb_depth_3d_det.png
 ```
 
 The 2D script auto-derives the depth path by replacing `/RGB/` with `/Depth/`.

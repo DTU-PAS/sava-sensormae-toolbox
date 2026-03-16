@@ -124,20 +124,21 @@ modalities:
   secondary: depth
 task: detection
 
+model_path: data/20260315_095251_rgb-depth_vit-medium_RFDETRHead_2D_KITTI_VoD.onnx
 runtime: onnxruntime
-model_path: data/model_final.onnx
 providers:
   - CUDAExecutionProvider
   - CPUExecutionProvider
 batch_size: 1
 
-input_size: [384, 768]
+input_size: [576, 576]
 confidence_threshold: 0.7
-num_classes: 4
 classes:
   - Car
+  - Large Vehicle
   - Two Wheeler
   - Pedestrian
+ 
 ```
 
 ### RGB + Depth — 3D Object Detection (BEV)
@@ -148,35 +149,34 @@ modalities:
   secondary: depth
 task: detection_3d
 
+model_path: data/20260315_095415_rgb-depth_vit-medium_CenterpointHead_3D_KITTI_VoD.onnx
 runtime: onnxruntime
-model_path: data/sparse_final.onnx
 providers:
   - CUDAExecutionProvider
   - CPUExecutionProvider
 batch_size: 1
 
-input_size: [384, 768]         # [height, width] — must match ONNX export resolution
+input_size: [384, 768]
 num_classes: 3
-confidence_threshold: 0.5
+confidence_threshold: 0.4
 
 class_names:
   - Car
   - Human
   - Two Wheeler
 
-# BEV grid (must match training)
-xbound: [0.0, 50.0, 0.25]     # forward range & cell size
-ybound: [-20.0, 20.0, 0.25]   # lateral range & cell size
+xbound: [0.0, 50.0, 0.25]
+ybound: [-20.0, 20.0, 0.25]
 
 # Post-processing
-score_threshold: 0.1           # pre-NMS score filter
-post_max_size: 83              # max detections per class after NMS
+score_threshold: 0.1
+post_max_size: 83
 
-# Per-class circle NMS radii (squared, in metres)
 nms_radii:
-  Car: 4.0
-  Human: 0.175
+  Car: 4.0  
+  Human: 0.175 
   Cyclist: 0.85
+  TwoWheeler: 0.85
 ```
 
 ### Key fields

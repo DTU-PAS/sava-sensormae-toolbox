@@ -4,21 +4,30 @@ from typing import Tuple
 
 import cv2
 import numpy as np
-from sklearn.preprocessing import scale
 
+from ..structures import DectObject, DetectionListResult
 from .objdet_base import SensorMAEObjectDetection
-from ..structures import DetectionListResult, DectObject
 
 
 class SensorMAEObjDet_RGBDepth(SensorMAEObjectDetection):
     """Single-input ONNX model: concatenated ``[1, 4, H, W]`` (3 RGB + 1 depth)."""
 
-    def __init__(self, runtime, *, num_classes: int = 20,
-                 confidence_threshold: float = 0.0,
-                 input_size: Tuple[int, int] = (640, 640),
-                 num_select: int = 300, **kwargs):
-        super().__init__(runtime, num_classes=num_classes,
-                         confidence_threshold=confidence_threshold, **kwargs)
+    def __init__(
+        self,
+        runtime,
+        *,
+        num_classes: int = 20,
+        confidence_threshold: float = 0.0,
+        input_size: Tuple[int, int] = (640, 640),
+        num_select: int = 300,
+        **kwargs
+    ):
+        super().__init__(
+            runtime,
+            num_classes=num_classes,
+            confidence_threshold=confidence_threshold,
+            **kwargs
+        )
         self.input_size = tuple(input_size)
         self.num_select = num_select
         self._orig_size: Tuple[int, int] | None = None  # (W, H)
@@ -27,19 +36,19 @@ class SensorMAEObjDet_RGBDepth(SensorMAEObjectDetection):
         h, w = rgb_image.shape[:2]
         self._orig_size = (w, h)
 
-        rgb = self._preprocess_rgb(rgb_image)           # (H_pad, W_pad, 3)
+        rgb = self._preprocess_rgb(rgb_image)  # (H_pad, W_pad, 3)
         depth = self._preprocess_depth(modality_x_image)  # (H_pad, W_pad)
 
-        combined = np.concatenate([
-            rgb.transpose(2, 0, 1), depth[np.newaxis]
-        ], axis=0)[np.newaxis].astype(np.float32)
+        combined = np.concatenate([rgb.transpose(2, 0, 1), depth[np.newaxis]], axis=0)[
+            np.newaxis
+        ].astype(np.float32)
 
         input_name = self.session.get_inputs()[0].name
         return {input_name: combined}
 
     def _postprocessing(self, outputs):
-        out_bbox = outputs[0][0]      # [Q, 4] normalised cxcywh
-        out_logits = outputs[1][0]    # [Q, C] raw logits
+        out_bbox = outputs[0][0]  # [Q, 4] normalised cxcywh
+        out_logits = outputs[1][0]  # [Q, C] raw logits
         num_queries, num_classes = out_logits.shape
 
         prob = self.sigmoid(out_logits)
@@ -64,9 +73,13 @@ class SensorMAEObjDet_RGBDepth(SensorMAEObjectDetection):
 
         det_results = DetectionListResult()
         for sc, lb, bx in zip(scores, labels, boxes):
-            det_results.append(DectObject(
-                xywh=bx.tolist(), class_id=int(lb), score=float(sc),
-            ))
+            det_results.append(
+                DectObject(
+                    xywh=bx.tolist(),
+                    class_id=int(lb),
+                    score=float(sc),
+                )
+            )
         return det_results
 
     def _preprocess_rgb(self, image: np.ndarray) -> np.ndarray:

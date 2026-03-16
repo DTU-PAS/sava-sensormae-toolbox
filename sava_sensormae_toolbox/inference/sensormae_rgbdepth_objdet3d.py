@@ -10,20 +10,33 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from ..structures import DectObject, DetectionListResult
 from .objdet_base import SensorMAEObjectDetection
-from ..structures import DetectionListResult, DectObject
 
 DEFAULT_NMS_RADII: Dict[str, float] = {
-    "Car": 4.0, "Human": 0.175, "Cyclist": 0.85, "TwoWheeler": 0.85,
+    "Car": 4.0,
+    "Human": 0.175,
+    "Cyclist": 0.85,
+    "TwoWheeler": 0.85,
 }
 
 _WIREFRAME_EDGES = [
-    (0, 1), (1, 2), (2, 3), (3, 0),
-    (4, 5), (5, 6), (6, 7), (7, 4),
-    (0, 4), (1, 5), (2, 6), (3, 7),
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 0),
+    (4, 5),
+    (5, 6),
+    (6, 7),
+    (7, 4),
+    (0, 4),
+    (1, 5),
+    (2, 6),
+    (3, 7),
 ]
 
-_CLASS_COLORS = {0: (0, 255, 0), 1: (0, 255, 255), 2: (0, 165, 255)}
+_CLASS_COLORS = {0: (0, 255, 0), 1: (0, 0, 255), 2: (255, 165, 0)}
+
 
 class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
     """BEV-based 3D detection with RGB + metric depth + calibration.
@@ -33,7 +46,9 @@ class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
     """
 
     def __init__(
-        self, runtime, *,
+        self,
+        runtime,
+        *,
         num_classes: int = 3,
         confidence_threshold: float = 0.3,
         input_size: Tuple[int, int] = (384, 384),
@@ -46,8 +61,12 @@ class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
         class_names: Optional[List[str]] = None,
         **kwargs,
     ):
-        super().__init__(runtime, num_classes=num_classes,
-                         confidence_threshold=confidence_threshold, **kwargs)
+        super().__init__(
+            runtime,
+            num_classes=num_classes,
+            confidence_threshold=confidence_threshold,
+            **kwargs,
+        )
         self.input_size = tuple(input_size)
         self.head_type = head_type
         self.xbound = tuple(xbound)
@@ -63,15 +82,21 @@ class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
         """BGR→RGB, ImageNet normalise, resize to input_size."""
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         rgb = self.normalize_imagenet(rgb)
-        return cv2.resize(rgb, (self.input_size[1], self.input_size[0]),
-                          interpolation=cv2.INTER_LINEAR)
+        return cv2.resize(
+            rgb,
+            (self.input_size[1], self.input_size[0]),
+            interpolation=cv2.INTER_LINEAR,
+        )
 
     def _preprocess_depth(self, metric_depth: np.ndarray) -> np.ndarray:
         """Metric depth → visual depth [0,1] → (x - 0.5) / 0.28, resize to input_size."""
         depth_vis = self._metric_to_visual(metric_depth)
         depth_vis = (depth_vis - 0.5) / 0.28
-        return cv2.resize(depth_vis, (self.input_size[1], self.input_size[0]),
-                          interpolation=cv2.INTER_LINEAR)
+        return cv2.resize(
+            depth_vis,
+            (self.input_size[1], self.input_size[0]),
+            interpolation=cv2.INTER_LINEAR,
+        )
 
     def _preprocessing(self, rgb_image, metric_depth, *, lidar_points, calib, **kwargs):
         h, w = rgb_image.shape[:2]
@@ -79,7 +104,7 @@ class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
         self.calib = calib
         target_h, target_w = self.input_size
 
-        rgb = self._preprocess_rgb(rgb_image)             # (target_h, target_w, 3)
+        rgb = self._preprocess_rgb(rgb_image)  # (target_h, target_w, 3)
         depth_vis = self._preprocess_depth(metric_depth)  # (target_h, target_w)
 
         # Intrinsics scaling for direct resize
@@ -95,47 +120,51 @@ class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
         if self.is_sparse:
             if lidar_points is None:
                 raise ValueError("Sparse ONNX model requires lidar_points")
-            lidar2cam = (calib["R0_rect_4x4"]
-                         @ calib["Tr_velo_to_cam"]).astype(np.float32)
+            lidar2cam = (calib["R0_rect_4x4"] @ calib["Tr_velo_to_cam"]).astype(
+                np.float32
+            )
             return {
-                "rgb":          rgb_tensor,
-                "depth_vis":    depth_vis_tensor,
+                "rgb": rgb_tensor,
+                "depth_vis": depth_vis_tensor,
                 "lidar_points": lidar_points.astype(np.float32),
-                "intrinsics":   K[np.newaxis].astype(np.float32),
-                "lidar2cam":    lidar2cam[np.newaxis],
+                "intrinsics": K[np.newaxis].astype(np.float32),
+                "lidar2cam": lidar2cam[np.newaxis],
             }
 
         # Dense model: metric depth resized to model resolution
         metric_resized = cv2.resize(
-            metric_depth, (target_w, target_h),
+            metric_depth,
+            (target_w, target_h),
             interpolation=cv2.INTER_NEAREST,
         )
         return {
-            "rgb":            rgb_tensor,
-            "depth_vis":      depth_vis_tensor,
-            "metric_depth":   metric_resized[np.newaxis, np.newaxis].astype(np.float32),
+            "rgb": rgb_tensor,
+            "depth_vis": depth_vis_tensor,
+            "metric_depth": metric_resized[np.newaxis, np.newaxis].astype(np.float32),
             "intrinsics_inv": np.linalg.inv(K).astype(np.float32)[np.newaxis],
-            "cam2lidar":      calib["cam2lidar"].astype(np.float32)[np.newaxis],
+            "cam2lidar": calib["cam2lidar"].astype(np.float32)[np.newaxis],
         }
 
     def _postprocessing(self, outputs):
-        
+
         boxes, scores, labels = self._decode(outputs)
         det_results = DetectionListResult()
         for i in range(len(scores)):
-            det_results.append(DectObject(
-                xyzwhd=boxes[i].tolist(),
-                class_id=int(labels[i]),
-                score=float(scores[i]),
-            ))
+            det_results.append(
+                DectObject(
+                    xyzwhd=boxes[i].tolist(),
+                    class_id=int(labels[i]),
+                    score=float(scores[i]),
+                )
+            )
         return det_results
 
     def _decode(self, outputs):
         heatmap = self.sigmoid(outputs[0][0])  # [C, Bx, By]
-        offset = outputs[1][0]                 # [2, Bx, By]
-        height = outputs[2][0]                 # [1, Bx, By]
-        dim = outputs[3][0]                    # [3, Bx, By]
-        rot = outputs[4][0]                    # [2, Bx, By]
+        offset = outputs[1][0]  # [2, Bx, By]
+        height = outputs[2][0]  # [1, Bx, By]
+        dim = outputs[3][0]  # [3, Bx, By]
+        rot = outputs[4][0]  # [2, Bx, By]
         iou_raw = outputs[5][0] if len(outputs) > 5 else None
 
         C, _, By = heatmap.shape
@@ -154,30 +183,39 @@ class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
             cx = gx.astype(np.float32) + offset[0].ravel()[idx]
             cy = gy.astype(np.float32) + offset[1].ravel()[idx]
 
-            boxes_cls = np.stack([
-                cx * self.xbound[2] + self.xbound[0],
-                cy * self.ybound[2] + self.ybound[0],
-                height[0].ravel()[idx],
-                np.exp(dim[0].ravel()[idx]),
-                np.exp(dim[1].ravel()[idx]),
-                np.exp(dim[2].ravel()[idx]),
-                np.arctan2(rot[0].ravel()[idx], rot[1].ravel()[idx]),
-            ], axis=1)
+            boxes_cls = np.stack(
+                [
+                    cx * self.xbound[2] + self.xbound[0],
+                    cy * self.ybound[2] + self.ybound[0],
+                    height[0].ravel()[idx],
+                    np.exp(dim[0].ravel()[idx]),
+                    np.exp(dim[1].ravel()[idx]),
+                    np.exp(dim[2].ravel()[idx]),
+                    np.arctan2(rot[0].ravel()[idx], rot[1].ravel()[idx]),
+                ],
+                axis=1,
+            )
 
             # if iou_raw is not None:
             #     scores_cls = scores_cls * self.sigmoid(iou_raw[0].ravel()[idx])
 
             cls_name = self.class_names[cls] if cls < len(self.class_names) else "Car"
-            keep = self._circle_nms(boxes_cls[:, :2], scores_cls,
-                               self.nms_radii.get(cls_name, 4.0), self.post_max_size)
+            keep = self._circle_nms(
+                boxes_cls[:, :2],
+                scores_cls,
+                self.nms_radii.get(cls_name, 4.0),
+                self.post_max_size,
+            )
             all_boxes.append(boxes_cls[keep])
             all_scores.append(scores_cls[keep])
             all_labels.append(np.full(len(keep), cls, dtype=np.int64))
 
         if all_boxes:
-            boxes, scores, labels = (np.concatenate(all_boxes),
-                                     np.concatenate(all_scores),
-                                     np.concatenate(all_labels))
+            boxes, scores, labels = (
+                np.concatenate(all_boxes),
+                np.concatenate(all_scores),
+                np.concatenate(all_labels),
+            )
             order = scores.argsort()[::-1]
             mask = scores[order] >= self.confidence_threshold
             return boxes[order][mask], scores[order][mask], labels[order][mask]
@@ -185,9 +223,9 @@ class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
 
     def compute_lidar2img(self, scale: Tuple[float, float] = (1.0, 1.0)) -> np.ndarray:
         """Compute lidar-to-image projection [3, 4] from stored calib."""
-        lidar2img = (self.calib["P2"]
-                     @ self.calib["R0_rect_4x4"]
-                     @ self.calib["Tr_velo_to_cam"])
+        lidar2img = (
+            self.calib["P2"] @ self.calib["R0_rect_4x4"] @ self.calib["Tr_velo_to_cam"]
+        )
         sx, sy = scale
         lidar2img[0, :] *= sx
         lidar2img[1, :] *= sy
@@ -213,16 +251,31 @@ class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
             pts = uv.astype(np.int32)
             for a, b in _WIREFRAME_EDGES:
                 cv2.line(image, tuple(pts[a]), tuple(pts[b]), color, 1)
-            lbl = (class_names[cls_idx]
-                   if class_names and cls_idx < len(class_names)
-                   else str(cls_idx))
+            lbl = (
+                class_names[cls_idx]
+                if class_names and cls_idx < len(class_names)
+                else str(cls_idx)
+            )
             text = f"{lbl} {scores[i]:.2f}"
             tx, ty = int(pts[0, 0]), int(pts[0, 1]) - 5
             (tw, th), baseline = cv2.getTextSize(text, font, 0.30, 1)
-            cv2.rectangle(image, (tx, ty - th - baseline),
-                          (tx + tw, ty + baseline), color, cv2.FILLED)
-            cv2.putText(image, text, (tx, ty), font, 0.30,
-                        (0, 0, 0), thickness=1, lineType=cv2.LINE_AA)
+            cv2.rectangle(
+                image,
+                (tx, ty - th - baseline),
+                (tx + tw, ty + baseline),
+                color,
+                cv2.FILLED,
+            )
+            cv2.putText(
+                image,
+                text,
+                (tx, ty),
+                font,
+                0.30,
+                (0, 0, 0),
+                thickness=1,
+                lineType=cv2.LINE_AA,
+            )
         return image
 
     @staticmethod
@@ -237,7 +290,7 @@ class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
         norm = 1.0 - (clipped - lo) / (hi - lo + 1e-6)
         norm[~valid] = 0.0
         return norm.astype(np.float32)
-    
+
     @staticmethod
     def _circle_nms(centers, scores, min_radius_sq, post_max_size=200):
         """Greedy circle NMS on BEV centres. Returns kept indices."""
@@ -291,13 +344,15 @@ class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
                 continue
             uv = proj[:, :2] / proj[:, 2:3].clip(min=0.1)
             visible = (
-                (uv[:, 0] >= -W * 0.5) & (uv[:, 0] < W * 1.5)
-                & (uv[:, 1] >= -H * 0.5) & (uv[:, 1] < H * 1.5)
+                (uv[:, 0] >= -W * 0.5)
+                & (uv[:, 0] < W * 1.5)
+                & (uv[:, 1] >= -H * 0.5)
+                & (uv[:, 1] < H * 1.5)
                 & in_front
             )
             projected.append(uv if visible.sum() >= 2 else None)
         return projected
-    
+
     @property
     def is_sparse(self) -> bool:
         """Auto-detect sparse vs dense from ONNX model input names."""

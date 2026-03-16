@@ -266,10 +266,10 @@ The RGB + Depth pipelines require metric depth as a float32 `.npy` array (metres
 
 ```bash
 python -m sava_sensormae_toolbox.utils.generate_depthmap \
-  --lidar  data/samples/KITTI/Velodyne/007454.bin \
-  --calib  data/samples/KITTI/Calib/007454.txt \
-  --image  data/samples/KITTI/RGB/007454.png \
-  --out    data/samples/KITTI/Depth/007454.npy
+  --lidar  data/samples/KITTI/Velodyne/006810.bin \
+  --calib  data/samples/KITTI/Calib/006810.txt \
+  --image  data/samples/KITTI/RGB/006810.png \
+  --out    data/samples/KITTI/Depth/006810.npy
 ```
 
 This projects LiDAR points onto the image plane using KITTI calibration, then fills gaps via Delaunay triangulation with automatic rejection of overly large or depth-discontinuous triangles.
@@ -282,11 +282,11 @@ from sava_sensormae_toolbox.utils.generate_depthmap import (
 )
 import cv2
 
-calib = parse_kitti_calib("data/samples/KITTI/Calib/007454.txt")
-img = cv2.imread("data/samples/KITTI/RGB/007454.png")
+calib = parse_kitti_calib("data/samples/KITTI/Calib/006810.txt")
+img = cv2.imread("data/samples/KITTI/RGB/006810.png")
 h, w = img.shape[:2]
 
-depth = generate_metric_depth("data/samples/KITTI/Velodyne/007454.bin", calib, (w, h))
+depth = generate_metric_depth("data/samples/KITTI/Velodyne/006810.bin", calib, (w, h))
 ```
 
 | Argument | Description |
@@ -339,14 +339,14 @@ from sava_sensormae_toolbox.inference import InferenceEngine
 
 engine = InferenceEngine("configs/sensormae_onnx_rgbdepth_det3d.yaml")
 
-rgb = cv2.imread("data/samples/KITTI/RGB/007454.png", cv2.IMREAD_UNCHANGED)
-metric_depth = np.load("data/samples/KITTI/Depth/007454.npy").astype(np.float32)
-pcd = np.fromfile("data/samples/KITTI/Velodyne/007454.bin", dtype=np.float32).reshape(-1, 4)
+rgb = cv2.imread("data/samples/KITTI/RGB/006810.png", cv2.IMREAD_UNCHANGED)
+metric_depth = np.load("data/samples/KITTI/Depth/006810.npy").astype(np.float32)
+pcd = np.fromfile("data/samples/KITTI/Velodyne/006810.bin", dtype=np.float32).reshape(-1, 4)
 lidar_points = pcd[:, :3].copy()
 
 # Parse calibration (KITTI format)
 from sava_sensormae_toolbox.utils.generate_depthmap import parse_kitti_calib
-calib = parse_kitti_calib("data/samples/KITTI/Calib/007454.txt")
+calib = parse_kitti_calib("data/samples/KITTI/Calib/006810.txt")
 
 results = engine.predict(rgb, metric_depth, lidar_points=lidar_points, calib=calib)
 

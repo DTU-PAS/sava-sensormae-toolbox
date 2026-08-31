@@ -1,79 +1,88 @@
+"""Abstract base class for all inference models.
+
+This is a minimal template — concrete pipeline logic (predict, __call__,
+unified ONNX inference) lives in the task-specific base classes
+(e.g. ``SensorMAEObjectDetection``).
+"""
 
 from abc import ABC, abstractmethod
 import os
+import time
+
+import cv2
 import numpy as np
 
-class Model(ABC):
-    """This class represents a generic model with different method that every subclass model
-        is likely to use and reimplement
 
-    Args:
-        ABC (ABC): Abstract class
-    """
+class Model(ABC):
+    """Template for all RGB + modality-X inference models."""
 
     def __init__(self):
         pass
 
     def __call__(self, *args, **kwargs):
-        return self._inference(*args, **kwargs)
+        return self.predict(*args, **kwargs)
+
+    def predict(self, rgb_image, modality_x_image, **kwargs):
+        """Full pipeline: preprocess → infer → postprocess."""
+        preprocessed = self._preprocessing(rgb_image, modality_x_image, **kwargs)
+        outputs = self._inference(preprocessed)
+        results = self._postprocessing(outputs)
+        return results
 
     @abstractmethod
-    def _inference(self):
-        pass
+    def _preprocessing(self, rgb_image, modality_x_image, **kwargs):
+        """Return preprocessed data ready for the runtime."""
 
     @abstractmethod
-    def _preprocessing(self):
-        pass
+    def _inference(self, preprocessed):
+        """Run the runtime on preprocessed data and return raw outputs."""
 
     @abstractmethod
-    def _postprocessing(self):
-        pass
-    
+    def _postprocessing(self, outputs):
+        """Convert raw outputs into structured results."""
+
+    # ------------------------------------------------------------------
+    # Shared image-processing utilities
+    # ------------------------------------------------------------------
     @staticmethod
-    def save_results(output_path: str, rgb_image: np.ndarray, thermal_image: np.ndarray, colored_mask: np.ndarray) -> None:
-        """
-        Save the inference results to disk as a side-by-side panel: RGB | Thermal | Segmentation.
+    def resize_and_pad(image: np.ndarray, size: int = 640, pad_value=0,
+                       interpolation=cv2.INTER_LINEAR) -> np.ndarray:
+        """Resize longest side to *size* and zero-pad to a square."""
+        h, w = image.shape[:2]
+        scale = size / max(h, w)
+        new_w, new_h = int(w * scale), int(h * scale)
+        resized = cv2.resize(image, (new_w, new_h), interpolation=interpolation)
+        padded = cv2.copyMakeBorder(
+            resized,
+            top=0, bottom=size - new_h, left=0, right=size - new_w,
+            borderType=cv2.BORDER_CONSTANT, value=pad_value,
+        )
+        return padded
 
-        Args:
-            output_path (str): Path to save the output image.
-            rgb_image (np.ndarray): Original RGB image.
-            thermal_image (np.ndarray): Original thermal image.
-            colored_mask (np.ndarray): Colored segmentation mask (H, W, 3) or (H, W).
-        """
+    @staticmethod
+    def normalize_imagenet(image: np.ndarray) -> np.ndarray:
+        """Normalise an RGB image with ImageNet mean/std (expects uint8 or [0,255])."""
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        return (image.astype(np.float32) / 255.0 - mean) / std
 
-        import cv2
+    # ------------------------------------------------------------------
+    # Shared visualisation / IO
+    # ------------------------------------------------------------------
+    @staticmethod
+    def save_results(output_path: str, *images: np.ndarray) -> None:
+        """Save a side-by-side panel of one or more images."""
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        h, w = images[0].shape[:2]
 
-        # Ensure the output directory exists
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        def _to_bgr3(img):
+            if img.ndim == 2:
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            elif img.ndim == 3 and img.shape[2] == 1:
+                img = np.repeat(img, 3, axis=2)
+            if img.shape[:2] != (h, w):
+                img = cv2.resize(img, (w, h), interpolation=cv2.INTER_LINEAR)
+            return img
 
-        h, w = rgb_image.shape[:2]
-
-        # Prepare thermal visualization to match RGB size and 3 channels
-        thermal_vis = thermal_image
-        if thermal_vis.shape[:2] != (h, w):
-            thermal_vis = cv2.resize(thermal_vis, (w, h), interpolation=cv2.INTER_LINEAR)
-        if thermal_vis.ndim == 2:
-            thermal_vis = cv2.cvtColor(thermal_vis, cv2.COLOR_GRAY2BGR)
-        elif thermal_vis.ndim == 3 and thermal_vis.shape[2] == 1:
-            thermal_vis = np.repeat(thermal_vis, 3, axis=2)
-
-        # Prepare segmentation visualization to match RGB size and 3 channels
-        seg_vis = colored_mask
-        if seg_vis.ndim == 2:
-            # grayscale mask -> 3ch for visualization
-            seg_vis = cv2.cvtColor(seg_vis.astype(np.uint8), cv2.COLOR_GRAY2BGR)
-        if seg_vis.shape[:2] != (h, w):
-            seg_vis = cv2.resize(seg_vis, (w, h), interpolation=cv2.INTER_NEAREST)
-        if seg_vis.ndim == 3 and seg_vis.shape[2] == 1:
-            seg_vis = np.repeat(seg_vis, 3, axis=2)
-
-        # Ensure RGB is 3-channel BGR for stacking
-        rgb_vis = rgb_image
-        if rgb_vis.ndim == 2:
-            rgb_vis = cv2.cvtColor(rgb_vis, cv2.COLOR_GRAY2BGR)
-
-        # Stack images horizontally: RGB | Thermal | Segmentation (no overlay)
-        combined = np.hstack((rgb_vis, thermal_vis, seg_vis))
-
-        # Save the combined panel
+        combined = np.hstack([_to_bgr3(img) for img in images])
         cv2.imwrite(output_path, combined)

@@ -1,0 +1,41 @@
+# Author: PAS Group DTU
+
+# Modality & task configuration
+modalities:
+  primary: rgb
+  secondary: depth
+task: detection_3d
+
+# Runtime configuration
+model_path: data/20260831_141322_rgb-depth_vit-tiny_CenterpointHead_3D_KITTI_VoD.onnx
+runtime: onnxruntime
+providers:
+  - CUDAExecutionProvider
+  - CPUExecutionProvider
+batch_size: 1
+
+# Model configuration
+input_size: [384, 768]   # [height, width] — must match ONNX model export resolution
+num_classes: 3
+confidence_threshold: 0.4
+
+# Class names (order must match training)
+class_names:
+  - Car
+  - Human
+  - Two Wheeler
+
+# BEV grid configuration (must match training config)
+xbound: [0.0, 50.0, 0.25]    # forward: 0–50 m, 0.25 m/cell → 200 cells
+ybound: [-20.0, 20.0, 0.25]  # lateral: ±20 m, 0.25 m/cell → 160 cells
+
+# Post-processing
+score_threshold: 0.1         # pre-NMS score threshold per class
+post_max_size: 83            # max detections per class after NMS
+
+# Per-class circle NMS radii (squared, in metres)
+nms_radii:
+  Car: 4.0           # 2.0 m radius
+  Human: 0.175       # 0.42 m radius
+  Cyclist: 0.85      # 0.92 m radius
+  TwoWheeler: 0.85   # 0.92 m radius

@@ -7,7 +7,7 @@ modalities:
 task: detection_3d
 
 # Runtime configuration
-model_path: data/20260315_095415_rgb-depth_vit-medium_CenterpointHead_3D_KITTI_VoD.onnx
+model_path: data/20260831_141322_rgb-depth_vit-tiny_CenterpointHead_3D_KITTI_VoD.onnx
 runtime: onnxruntime
 providers:
   - CUDAExecutionProvider

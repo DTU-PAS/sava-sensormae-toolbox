@@ -95,7 +95,7 @@ class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
         return cv2.resize(
             depth_vis,
             (self.input_size[1], self.input_size[0]),
-            interpolation=cv2.INTER_LINEAR,
+            interpolation=cv2.INTER_NEAREST,
         )
 
     def _preprocessing(self, rgb_image, metric_depth, *, lidar_points, calib, **kwargs):
@@ -280,15 +280,20 @@ class SensorMAEObjDet_RGBDepth3D(SensorMAEObjectDetection):
 
     @staticmethod
     def _metric_to_visual(depth_map: np.ndarray) -> np.ndarray:
-        """Metric depth [H, W] → visual depth [H, W] in [0, 1]."""
+        """Metric depth [H, W] → visual depth [H, W] in [0, 1].
+
+        Missing/invalid pixels (depth <= 0) are set to 0.5 (the SensorMAE
+        depth mean), so they normalise to 0.0 — a neutral "no information"
+        signal rather than an extreme minimum.
+        """
         valid = depth_map > 0
         if valid.sum() == 0:
-            return np.zeros_like(depth_map, dtype=np.float32)
+            return np.full_like(depth_map, 0.5, dtype=np.float32)
         lo = np.percentile(depth_map[valid], 1)
         hi = np.percentile(depth_map[valid], 99)
         clipped = np.clip(depth_map, lo, hi)
         norm = 1.0 - (clipped - lo) / (hi - lo + 1e-6)
-        norm[~valid] = 0.0
+        norm[~valid] = 0.5
         return norm.astype(np.float32)
 
     @staticmethod

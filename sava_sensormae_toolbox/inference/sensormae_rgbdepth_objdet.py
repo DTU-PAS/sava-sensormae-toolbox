@@ -89,20 +89,25 @@ class SensorMAEObjDet_RGBDepth(SensorMAEObjectDetection):
         return cv2.resize(rgb, self.input_size, interpolation=cv2.INTER_LINEAR)
 
     def _preprocess_depth(self, metric_depth: np.ndarray) -> np.ndarray:
-        """Metric depth → visual depth [0,1] → (x - 0.5) / 0.28, pad to square."""
+        """Metric depth → visual depth [0,1] → (x - 0.5) / 0.28, resize to square."""
         depth_vis = self._metric_to_visual(metric_depth)
         depth_vis = (depth_vis - 0.5) / 0.28
-        return cv2.resize(depth_vis, self.input_size, interpolation=cv2.INTER_LINEAR)
+        return cv2.resize(depth_vis, self.input_size, interpolation=cv2.INTER_NEAREST)
 
     @staticmethod
     def _metric_to_visual(depth_map: np.ndarray) -> np.ndarray:
-        """Metric depth [H, W] → visual depth [H, W] in [0, 1]."""
+        """Metric depth [H, W] → visual depth [H, W] in [0, 1].
+
+        Missing/invalid pixels (depth <= 0) are set to 0.5 (the SensorMAE
+        depth mean), so they normalise to 0.0 — a neutral "no information"
+        signal. Matches the 2D training pipeline (metric_depth_to_visual_pil).
+        """
         valid = depth_map > 0
         if valid.sum() == 0:
-            return np.zeros_like(depth_map, dtype=np.float32)
+            return np.full_like(depth_map, 0.5, dtype=np.float32)
         lo = np.percentile(depth_map[valid], 1)
         hi = np.percentile(depth_map[valid], 99)
         clipped = np.clip(depth_map, lo, hi)
         norm = 1.0 - (clipped - lo) / (hi - lo + 1e-6)
-        norm[~valid] = 0.0
+        norm[~valid] = 0.5
         return norm.astype(np.float32)

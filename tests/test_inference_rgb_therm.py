@@ -1,9 +1,11 @@
+import argparse
 import os
 import sys
-import argparse
-import numpy as np
-import cv2
+import time
 from functools import partial
+
+import cv2
+import numpy as np
 import yaml
 
 # Ensure the repository root is on sys.path when running this file directly
@@ -12,7 +14,9 @@ REPO_ROOT = os.path.abspath(os.path.join(THIS_DIR, ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from sava_sensormae_toolbox.inference import InferenceEngine, SensorMAESegm, SensorMAEObjDet
+from sava_sensormae_toolbox.inference import (InferenceEngine, SensorMAEObjDet,
+                                              SensorMAESegm)
+
 
 def find_infrared_path(visible_path: str) -> str:
     """Return the infrared path by replacing 'Visible' with 'Infrared'.
@@ -65,8 +69,16 @@ def run_inference(config_path: str, visible_path: str, output_path: str) -> None
     # Create Inference Engine
     inference_engine = InferenceEngine(config_path, model_class)
 
-    # Perform inference
-    results = inference_engine.predict(rgb, thermal)
+    num_runs = 100
+    start = time.time()
+    for _ in range(num_runs):
+        # Perform inference
+        results = inference_engine.predict(rgb, thermal)
+    end = time.time()
+    
+    avg_time = (end - start) / num_runs
+    print(f"Average inference time: {avg_time * 1000:.2f} ms")
+
 
     # Save side-by-side panel
     if "segm" in config_path.lower():
